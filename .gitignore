@@ -1,0 +1,36 @@
+# Python/runtime
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+.venv/
+venv/
+
+# Runtime state and generated data
+logs/
+runtime/
+prometheus/data/
+healthchecks/static-collected/
+healthchecks/search.db
+healthchecks/*.sqlite
+healthchecks/*.sqlite3
+healthchecks/hc.sqlite
+
+# Secrets/local-only settings
+healthchecks/hc/local_settings.py
+healthchecks/hc/local_settings*.py
+!healthchecks/hc/local_settings.py.example
+
+# Nested upstream Git metadata from moved Healthchecks checkout
+healthchecks/.git/
+healthchecks/.git*
+
+# Node/editor/system noise
+node_modules/
+.DS_Store
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,105 @@
+{% extends "base_project.html" %}
+{% load compress static %}
+
+{% block title %}Monitoring - {{ site_name }}{% endblock %}
+
+{% block containers %}
+<div class="container-fluid">
+    <div id="monitoring-dashboard"
+         data-overview-url="{% url 'hc-monitoring-overview' %}"
+         data-infra-url="{% url 'hc-monitoring-infrastructure' %}"
+         data-live-url="{% url 'hc-monitoring-live' %}"
+         data-series-template="/monitoring/api/checks/__CODE__/series/"
+         data-live-template="/monitoring/api/checks/__CODE__/live/"
+         data-runs-template="/monitoring/api/checks/__CODE__/runs/"
+         data-log-template="/monitoring/api/checks/__CODE__/logs/">
+        <div class="monitoring-header">
+            <div>
+                <h1>Monitoring</h1>
+                <p>AK1111, HODL, server health, and infrastructure graphs.</p>
+            </div>
+            <button id="monitoring-refresh" class="btn btn-default btn-sm">Refresh</button>
+        </div>
+
+        <div id="monitoring-summary" class="monitoring-summary"></div>
+
+        <div class="monitoring-panel monitoring-live-panel">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>Live Cron Observer</h2>
+                    <p class="monitoring-muted">Per-second cron progress, server usage, DB activity, and IST timestamps.</p>
+                </div>
+                <span id="monitoring-live-clock" class="monitoring-muted">Loading...</span>
+            </div>
+            <div id="monitoring-live-summary" class="monitoring-live-summary"></div>
+            <div class="table-responsive">
+                <table class="table table-condensed monitoring-live-table">
+                    <thead>
+                        <tr>
+                            <th>Cron</th>
+                            <th>Elapsed</th>
+                            <th>CPU</th>
+                            <th>RAM</th>
+                            <th>DB</th>
+                            <th>Stage</th>
+                            <th>Last progress</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monitoring-live-crons">
+                        <tr><td colspan="7" class="monitoring-muted">No live data yet.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div id="monitoring-live-alerts" class="monitoring-live-alerts"></div>
+        </div>
+
+        <div class="row">
+            <div class="col-lg-8">
+                <div id="monitoring-projects"></div>
+            </div>
+            <div class="col-lg-4">
+                <div class="monitoring-panel">
+                    <h2>Selected Cron</h2>
+                    <div id="monitoring-selected-empty" class="text-muted">
+                        Select a cron from the project tables.
+                    </div>
+                    <div id="monitoring-selected" style="display:none">
+                        <div id="monitoring-selected-title" class="monitoring-chart-title"></div>
+                        <svg id="monitoring-duration-chart" class="monitoring-chart" viewBox="0 0 640 180"></svg>
+                        <div id="monitoring-duration-stats" class="monitoring-statline"></div>
+                        <div id="monitoring-run-timeline" class="monitoring-run-timeline"></div>
+                        <div id="monitoring-selected-links" class="monitoring-actions"></div>
+                    </div>
+                </div>
+
+                <div class="monitoring-panel">
+                    <h2>Infrastructure</h2>
+                    <div id="monitoring-infra-grid" class="monitoring-infra-grid"></div>
+                </div>
+
+                <div class="monitoring-panel">
+                    <div class="monitoring-project-head">
+                        <h2>Execution Log</h2>
+                        <span id="monitoring-log-status" class="monitoring-muted">Select a cron</span>
+                    </div>
+                    <div id="monitoring-log-runs" class="monitoring-log-runs"></div>
+                    <pre id="monitoring-execution-log" class="monitoring-execution-log">No cron selected.</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block head %}
+{{ block.super }}
+{% compress css %}
+<link rel="stylesheet" href="{% static 'css/monitoring.css' %}" type="text/css">
+{% endcompress %}
+{% endblock %}
+
+{% block scripts %}
+{% compress js %}
+<script src="{% static 'js/monitoring.js' %}"></script>
+{% endcompress %}
+{% endblock %}
