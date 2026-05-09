@@ -89,7 +89,11 @@ External explorer API returned deprecated V1 endpoint error; app code expects a 
 TypeError: string indices must be integers, not 'str'
 ```
 
-Fixing those endpoint/API parser issues belongs in the AK1111/HODL app repos and should be handled separately from this monitoring-only codebase.
+HODL is now being fixed in the app repo on branch `cron-reliability-monitoring`. The HODL app has a `cronops` Django app that records cron jobs, runs, events, checkpoints, locks, DB counters, and progress. The monitoring dashboard merges HODL app-owned state from `http://127.0.0.1:8001/api/cronops/live/` with wrapper-level observer data.
+
+AK1111 remains wrapper-only in this phase.
+
+Important HODL deployment note: add `ETHERSCAN_API_KEY` to the HODL environment for Etherscan V2 reliability. The code falls back to the existing `BSCSCAN_API_KEY`/`BASESCAN_API_KEY`, but the unified V2 endpoint should use an Etherscan V2 key.
 
 ## GitHub Versioning
 

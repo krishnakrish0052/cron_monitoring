@@ -424,6 +424,34 @@
             : '<div class="monitoring-muted">No stuck or stale cron alerts.</div>';
     }
 
+    function renderOrphans(data) {
+        var orphans = data.orphans || [];
+        var panel = $("monitoring-orphans-panel");
+        var tbody = $("monitoring-orphans-tbody");
+        var counter = $("monitoring-orphans-count");
+        if (!panel || !tbody) return;
+        if (!orphans.length) {
+            panel.style.display = "none";
+            return;
+        }
+        panel.style.display = "";
+        if (counter) counter.textContent = orphans.length + " orphan" + (orphans.length === 1 ? "" : "s");
+        tbody.innerHTML = orphans.map(function (item) {
+            var ageH = item.age_seconds != null ? formatSeconds(item.age_seconds) : "-";
+            var hash = (item.job_hash || "").slice(0, 8);
+            var cmd = item.cmdline || "";
+            if (cmd.length > 120) cmd = cmd.slice(0, 117) + "...";
+            return "<tr class=\"orphan-row orphan-" + esc(item.kind || "untracked") + "\">" +
+                "<td>" + esc(item.pid) + "</td>" +
+                "<td>" + esc(item.project_guess || "-") + "</td>" +
+                "<td><span class=\"badge orphan-kind\">" + esc(item.kind) + "</span></td>" +
+                "<td>" + esc(ageH) + "</td>" +
+                "<td><code>" + esc(hash) + "</code></td>" +
+                "<td><code class=\"orphan-cmd\">" + esc(cmd) + "</code></td>" +
+            "</tr>";
+        }).join("");
+    }
+
     function loadLive() {
         return fetch(root.dataset.liveUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
@@ -434,6 +462,7 @@
                 renderRecentRuns(data);
                 renderExternalErrors(data);
                 renderLiveAlerts(data);
+                renderOrphans(data);
             });
     }
 

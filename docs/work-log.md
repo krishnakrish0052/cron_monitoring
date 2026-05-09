@@ -49,5 +49,12 @@
 - If a cron has no internal print/log statements, the dashboard still shows HTTP, DB, stack, and Python trace events, but cannot invent business-specific step names.
 - Maximum Python tracing is bounded by `MONITORING_CRON_MAX_TRACE_EVENTS` and can be disabled with `MONITORING_CRON_TRACE=0`.
 - External explorer API errors like deprecated V1 endpoint responses should be fixed in the app repositories in a separate Buddy-safe change.
+- On 2026-05-09, HODL app-side cron reliability work started on branch `cron-reliability-monitoring` in `/home/ubuntu/hodlbackend2/HODL-2025`.
+- HODL now has an app-owned `cronops` Django app with DB-backed cron jobs, runs, events, checkpoints, and per-cron locks.
+- HODL duplicate cron runs are skipped per cron key, while different cron jobs can still run in parallel.
+- HODL explorer fetchers now use Etherscan V2-style `txlist` calls through `cronops.explorer` and validate response shape before iterating transactions.
+- HODL long-running cron paths now emit business progress checkpoints for LP earnings, SVR4 earning/rank/business aggregation, Korean marking, and blackcard sync.
+- The monitoring dashboard now merges HODL `cronops` state from `http://127.0.0.1:8001/api/cronops/live/` into `/monitoring/api/live/`.
+- `ETHERSCAN_API_KEY` is not currently present in the HODL `.env`; the code falls back to existing explorer keys, but a real Etherscan V2 key should be added for production reliability.
 - The Healthchecks Django check currently warns that `EMAIL_HOST` is not set; this warning existed before the dashboard/log changes.
 - PM2 may warn that the daemon version differs from the local CLI version; use `pm2 update` during a quiet window if needed.

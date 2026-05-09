@@ -45,7 +45,39 @@ MONITORING_PROJECTS = (
 )
 
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
+HODL_CRONOPS_URL = os.environ.get("HODL_CRONOPS_URL", "http://127.0.0.1:8001/api/cronops/live/")
 IST = ZoneInfo("Asia/Kolkata")
+
+HODL_CRON_UUIDS = {
+    "liquidity.cron_in.earning_in": "bb1cfdd1-bd68-4ab1-b581-d857b64e5a33",
+    "liquidity2.cron.lp2_earning": "0069c15c-91f7-408c-8b2e-a9eaf5f78c74",
+    "svr4.cron.svr_earning_4": "0298cd62-ebd8-4943-8db7-d8c1e5de3961",
+    "akasha.cron.distribute_earning": "7526f6ef-ef07-488a-8f10-a5f4f92c5e10",
+    "akita.utils.fetchNFTFromBlockchain": "1b184af8-3366-4bbe-9458-a0e496e2408a",
+    "liquidity.utils.fetchInvestmentsFromBlockchain": "84f6ba40-7cbc-4149-95ff-51adea8964cf",
+    "user.service.fetchYbaFee": "76f2b38b-aa6a-4e7b-944d-f5478f19ebdd",
+    "truebreath.utils.fetchTruebreatheBlockchain": "9012a580-a5e2-410c-bf28-9811fb0b8c9b",
+    "truebreath.utils2.fetchTruebreatheBase": "493c5494-bffa-4289-b89a-601b8e0b031c",
+    "akasha.utils.fetch_deposite.fetch_deposites": "847cfcce-6e78-4916-bb5b-262df6241cd5",
+    "akasha.utils.fetch_super_nodes.fetch_super_nodes": "a29c56d5-054e-4827-b231-e5b923ad2686",
+    "svr4.utils.fetch_svr_lp.fetchSvrLp": "45f22d15-fbea-45cb-acca-5b7b13a4093c",
+    "svr4.utils.fetch_svr_package_base.fetch_svr_pkg_base": "3c813025-839a-449a-a095-6891ad6ef889",
+    "svr4.utils.fetch_svr_package_bsc.fetchSovereignBlockchain": "e360e926-d391-492a-97e9-d328a440937c",
+    "analytics.cron.calculate_analytics_lp_vol": "e2b8463d-7b43-4100-94e9-3fa135e454d6",
+    "analytics.cron.calculate_analytics_lp_level_vol": "23cafe3d-ed35-471d-a2db-42d016ce8a3f",
+    "analytics.cron.calculate_analytics_lp_level": "de896294-c631-4547-b659-d60832868cd6",
+    "analytics.cron2.calculate_analytics_lp_vol": "df66c9ea-d48f-4567-b38b-5c1bc69f1fbc",
+    "analytics.cron2.calculate_analytics_lp_level_vol": "b7853048-5d54-40ea-944c-6ca1af5b8673",
+    "analytics.cron2.calculate_analytics_lp_level": "fce7513d-6f2c-4757-8fb3-701d4d683895",
+    "user.cron.delete_logs": "a7f02dd3-924d-4b6b-8cea-24301f218237",
+    "user.cron.mark_korean": "9241fa2e-d091-4741-a104-7b16c4af6657",
+    "sovereign.cron.update_rank": "beb278d9-d6da-4341-b1ad-a8c08348c232",
+    "svr4.cron.update_rank_svr4_parallel": "63c88700-b0c7-4cc1-81ef-0fe294f9a1d1",
+    "svr4.cron.svr4_total_business_aggregate": "b659c4c5-1cd7-45d9-9c1f-adc83ec51c69",
+    "blackcard.cron.add_blackcard_users": "0c65cc53-3fae-413f-aef9-5775e63eac69",
+    "akasha.cron.update_ak1111_price": "ad8bcfd4-9b13-4c9a-8213-0ffab1b09547",
+    "akasha.cron.mint_deposit": "25f779fa-cc5a-4d86-8bc9-a9b9f4bb89b1",
+}
 
 
 def _monitoring_config() -> list[dict[str, str]]:
@@ -64,6 +96,45 @@ def _fetch_json(url: str, timeout: float = 3) -> dict:
             return json.loads(response.read().decode())
     except Exception as exc:
         return {"status": "unreachable", "error": str(exc), "checks": {}}
+
+
+def _hodl_run_to_live(run: dict) -> dict:
+    job_key = run.get("job_key") or run.get("function") or ""
+    return {
+        **run,
+        "source": "hodl-cronops",
+        "project": "HODL-2025",
+        "function": run.get("function") or job_key,
+        "ping_uuid": HODL_CRON_UUIDS.get(job_key),
+        "stage": run.get("stage") or run.get("message"),
+        "last_progress_ist": run.get("last_progress_at"),
+    }
+
+
+def _merge_hodl_cronops_state(state: dict) -> dict:
+    hodl = _fetch_json(HODL_CRONOPS_URL, timeout=1.5)
+    if "running" not in hodl and "recent" not in hodl:
+        state["hodl_cronops"] = {"status": "unreachable", "error": hodl.get("error")}
+        return state
+
+    active = [_hodl_run_to_live(run) for run in hodl.get("running", [])]
+    recent = [_hodl_run_to_live(run) for run in hodl.get("recent", [])]
+    orphans = hodl.get("orphans", [])
+    state.setdefault("active_crons", [])
+    state.setdefault("recent_runs", [])
+    state["active_crons"] = active + state["active_crons"]
+    state["recent_runs"] = recent[:20] + state["recent_runs"]
+    state["orphans"] = orphans
+    state["hodl_cronops"] = {
+        "status": "ok",
+        "jobs": hodl.get("jobs", 0),
+        "running": len(active),
+        "recent": len(recent),
+        "orphans": len(orphans),
+        "duplicate_skips_24h": hodl.get("duplicate_skips_24h", 0),
+        "generated_at": hodl.get("generated_at"),
+    }
+    return state
 
 
 def _prom_query(query: str) -> list[dict]:
@@ -401,13 +472,13 @@ def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse
 
 @login_required
 def monitoring_live(request: AuthenticatedHttpRequest) -> HttpResponse:
-    return JsonResponse(read_state())
+    return JsonResponse(_merge_hodl_cronops_state(read_state()))
 
 
 @login_required
 def monitoring_check_live(request: AuthenticatedHttpRequest, code: UUID) -> HttpResponse:
     check, rw = _get_check_for_user(request, code, preload_owner_profile=True)
-    state = read_state()
+    state = _merge_hodl_cronops_state(read_state())
     code_text = str(check.code)
     active = [
         item

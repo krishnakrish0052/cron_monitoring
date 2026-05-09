@@ -80,6 +80,29 @@ Some current AK1111/HODL failures are real cron code failures, not Healthchecks 
 
 This rollout classifies and displays that root cause. It intentionally does not edit the AK1111 or HODL app repositories.
 
+## HODL App-Side Cronops Rollout
+
+On 2026-05-09, HODL app code was updated on branch `cron-reliability-monitoring` to fix the HODL side of the issue:
+
+- Added the `cronops` Django app and applied migration `cronops.0001_initial`.
+- Added per-cron DB locks so the same HODL cron cannot stack duplicate copies while another run is active.
+- Added DB-backed HODL cron runs, events, checkpoints, DB query counters, slow query counters, memory samples, and stale/no-progress fields.
+- Fixed HODL explorer fetchers for Truebreath BSC, Truebreath Base, and AK1111 Super Nodes to use Etherscan V2 request shape and validate `result` before processing.
+- Added app-emitted progress/checkpoints for long LP/SVR4/Korean/blackcard cron workflows.
+- Updated Healthchecks custom monitoring views to merge `http://127.0.0.1:8001/api/cronops/live/` into `/monitoring/api/live/`.
+
+Verification performed:
+
+```bash
+cd /home/ubuntu/hodlbackend2/HODL-2025
+/home/ubuntu/hodlbackend2/HODL-2025/venv/bin/python manage.py check
+/home/ubuntu/hodlbackend2/HODL-2025/venv/bin/python manage.py makemigrations --check --dry-run
+/home/ubuntu/hodlbackend2/HODL-2025/venv/bin/python manage.py migrate cronops
+curl http://127.0.0.1:8001/api/cronops/live/
+```
+
+Operational note: `ETHERSCAN_API_KEY` should be added to the HODL deployment environment. Existing `BSCSCAN_API_KEY` and `BASESCAN_API_KEY` are present, but Etherscan V2 is designed around the unified Etherscan API key.
+
 ## Rollback
 
 Restart from the previous PM2 dump if needed:

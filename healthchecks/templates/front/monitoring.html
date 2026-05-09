@@ -58,6 +58,33 @@
             <div id="monitoring-live-alerts" class="monitoring-live-alerts"></div>
         </div>
 
+        <div id="monitoring-orphans-panel" class="monitoring-panel monitoring-orphans-panel" style="display:none">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>Orphan / Untracked Cron Processes</h2>
+                    <p class="monitoring-muted">Cron processes alive on the box that have no matching CronRun record. Legacy = pre-cronops; untracked = wrapper run that never registered.</p>
+                </div>
+                <span id="monitoring-orphans-count" class="monitoring-muted">0</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-condensed monitoring-live-table">
+                    <thead>
+                        <tr>
+                            <th>PID</th>
+                            <th>Project</th>
+                            <th>Kind</th>
+                            <th>Age</th>
+                            <th>Job hash</th>
+                            <th>Cmdline</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monitoring-orphans-tbody">
+                        <tr><td colspan="6" class="monitoring-muted">No orphans.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <div class="row">
             <div class="col-lg-8">
                 <div class="monitoring-panel">
