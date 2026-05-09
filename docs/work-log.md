@@ -27,6 +27,7 @@
 - Added an operator-first Action Center, sticky quick navigation, and cron table search/status filters to make `/monitoring/` easier to use during incidents.
 - Patched the local AK1111 server checkout for the same explorer response-shape crash in `lplock.utils.fetch_data.fetchInvestmentsFromBlockchain` and `dex.utils.fetch_investments.fetchTokenInvestments`.
 - Added AK1111 `config.explorer.fetch_normal_transactions()` to use Etherscan V2 request shape for Base (`chainid=8453`), prefer `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validate `result` before iterating transactions, classify explorer failures, and avoid advancing block checkpoints after malformed explorer responses.
+- Verified the next AK1111 explorer cron run no longer raises `TypeError`; it now surfaces the real upstream blocker as `etherscan_paid_tier_required` when the current Etherscan plan does not include Base chain API coverage.
 
 ## Design Decisions
 

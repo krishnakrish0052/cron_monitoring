@@ -15,7 +15,7 @@
 - Rebranded the UI to `HODL Crons Monitoring` with an AMOLED black dashboard and monitoring-owned SVG logo.
 - Replaced mixed CPU windows with one observer-owned live metric source. CPU is labeled as live 1s, average, and max 1h.
 - Added structured `.events.jsonl` trace streams for stdout/stderr/logging, DB queries, HTTP requests, Python trace events, failures, and run end.
-- Added HTTP/API classification for BscScan/BaseScan/Etherscan response-shape errors, including deprecated V1 endpoint responses.
+- Added HTTP/API classification for BscScan/BaseScan/Etherscan response-shape errors, including deprecated V1 endpoint responses and Etherscan paid-tier/full-chain-coverage errors.
 - Converted dashboard-facing times, graph labels, run history, and live panels to IST.
 - Added an operator Action Center, sticky quick navigation, and cron table search/status filters so the dashboard is easier to use during incidents.
 - Added sanitized Git versioning for `https://github.com/krishnakrish0052/cron_monitoring.git`.
@@ -81,7 +81,7 @@ Some current AK1111/HODL failures are real cron code failures, not Healthchecks 
 
 This rollout classifies and displays that root cause. It intentionally does not edit the AK1111 or HODL app repositories.
 
-Follow-up on 2026-05-09: the AK1111 server checkout was patched locally for the same explorer response-shape issue in `lplock.utils.fetch_data.fetchInvestmentsFromBlockchain` and `dex.utils.fetch_investments.fetchTokenInvestments`. The fix adds `config.explorer.fetch_normal_transactions()`, uses Etherscan V2-style `chainid=8453`, prefers `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validates that `result` is a list before transaction processing, records classified explorer errors in `AppLogs`, and does not advance block checkpoints on malformed explorer responses. The AK1111 checkout on this server is not a Git repository, so this local patch must be ported to the deployment source repository before a Buddy deploy.
+Follow-up on 2026-05-09: the AK1111 server checkout was patched locally for the same explorer response-shape issue in `lplock.utils.fetch_data.fetchInvestmentsFromBlockchain` and `dex.utils.fetch_investments.fetchTokenInvestments`. The fix adds `config.explorer.fetch_normal_transactions()`, uses Etherscan V2-style `chainid=8453`, prefers `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validates that `result` is a list before transaction processing, records classified explorer errors in `AppLogs`, and does not advance block checkpoints on malformed explorer responses. Verification from the next run showed the `TypeError` was gone and the remaining upstream blocker was Etherscan V2 plan coverage for Base, now classified as `etherscan_paid_tier_required`. The AK1111 checkout on this server is not a Git repository, so this local patch must be ported to the deployment source repository before a Buddy deploy.
 
 ## HODL App-Side Cronops Rollout
 

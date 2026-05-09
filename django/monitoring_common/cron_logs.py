@@ -120,6 +120,17 @@ def _classify_external_payload(url: str, payload: object) -> dict:
                     "message": "External explorer API returned deprecated V1 endpoint error; app code expects a transaction list.",
                 }
             )
+        elif status == "0" and (
+            "free api access is not supported" in combined
+            or "upgrade your api plan" in combined
+        ):
+            classification.update(
+                {
+                    "type": "etherscan_paid_tier_required",
+                    "severity": "error",
+                    "message": "Etherscan V2 rejected this chain for the current API plan; Base chain API access requires a plan/key with full chain coverage.",
+                }
+            )
         elif status == "0" and isinstance(result, str):
             classification.update(
                 {

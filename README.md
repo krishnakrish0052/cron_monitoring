@@ -65,6 +65,7 @@ Cron execution logs are captured without editing the main app repos. The wrapper
 - Status, duration, stdout, stderr, Python logging output, and tracebacks.
 - Structured `.events.jsonl` traces for stdout, stderr, logging, DB queries, HTTP calls, Python trace events, failures, and run end.
 - HTTP calls are traced through `requests.Session.request` with sanitized URLs, status code, duration, result type/count, and external API classification.
+- Explorer API classifiers include `etherscan_v1_deprecated`, `etherscan_paid_tier_required`, generic string-result responses, rate-limit style failures, and unparsed explorer responses.
 - Django DB calls are traced through `connection.execute_wrapper` with query duration, operation/table summary, fingerprint, latest query, and slow-query markers.
 - Bounded Python tracing records app-file call/line/return/exception events without editing app repos.
 - Per-second heartbeat state including UTC/IST timestamps, PID, elapsed time, CPU/RAM from `/proc`, stack summary, DB query counts, HTTP counts, latest trace, latest query, slow query count, and stuck/no-progress warning.
@@ -98,7 +99,7 @@ AK1111 was found to have the same Base explorer response-shape bug in:
 - `/home/ubuntu/ak1111-backend/lplock/utils/fetch_data.py`
 - `/home/ubuntu/ak1111-backend/dex/utils/fetch_investments.py`
 
-The server checkout has been patched to route those two cron fetchers through `/home/ubuntu/ak1111-backend/config/explorer.py`, which calls Etherscan V2 shape with `chainid=8453`, prefers `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validates `result` before iterating, classifies explorer failures, and avoids advancing block checkpoints after malformed explorer responses. This AK1111 checkout is not a Git repository on the server, so the same change must be copied into the AK1111 source-control repository used by deployment/Buddy before any future deploy overwrites it.
+The server checkout has been patched to route those two cron fetchers through `/home/ubuntu/ak1111-backend/config/explorer.py`, which calls Etherscan V2 shape with `chainid=8453`, prefers `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validates `result` before iterating, classifies explorer failures, and avoids advancing block checkpoints after malformed explorer responses. The post-patch cron no longer raises `TypeError`; it now surfaces the real upstream issue as `etherscan_paid_tier_required` when Etherscan V2 reports that Base chain API access is not available on the current plan. This AK1111 checkout is not a Git repository on the server, so the same change must be copied into the AK1111 source-control repository used by deployment/Buddy before any future deploy overwrites it.
 
 Important HODL deployment note: add `ETHERSCAN_API_KEY` to the HODL environment for Etherscan V2 reliability. The code falls back to the existing `BSCSCAN_API_KEY`/`BASESCAN_API_KEY`, but the unified V2 endpoint should use an Etherscan V2 key.
 
