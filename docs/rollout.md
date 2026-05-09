@@ -17,6 +17,7 @@
 - Added structured `.events.jsonl` trace streams for stdout/stderr/logging, DB queries, HTTP requests, Python trace events, failures, and run end.
 - Added HTTP/API classification for BscScan/BaseScan/Etherscan response-shape errors, including deprecated V1 endpoint responses.
 - Converted dashboard-facing times, graph labels, run history, and live panels to IST.
+- Added an operator Action Center, sticky quick navigation, and cron table search/status filters so the dashboard is easier to use during incidents.
 - Added sanitized Git versioning for `https://github.com/krishnakrish0052/cron_monitoring.git`.
 - Kept Healthchecks ping/event logs as the canonical ping history.
 - Kept Prometheus internal only and did not add Grafana.
@@ -79,6 +80,8 @@ Expected results:
 Some current AK1111/HODL failures are real cron code failures, not Healthchecks ping failures. Several app functions call explorer APIs and assume `data["result"]` is a list. When the external API returns a string error such as a deprecated V1 endpoint warning, the app code raises `TypeError: string indices must be integers, not 'str'`.
 
 This rollout classifies and displays that root cause. It intentionally does not edit the AK1111 or HODL app repositories.
+
+Follow-up on 2026-05-09: the AK1111 server checkout was patched locally for the same explorer response-shape issue in `lplock.utils.fetch_data.fetchInvestmentsFromBlockchain` and `dex.utils.fetch_investments.fetchTokenInvestments`. The fix adds `config.explorer.fetch_normal_transactions()`, uses Etherscan V2-style `chainid=8453`, prefers `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validates that `result` is a list before transaction processing, records classified explorer errors in `AppLogs`, and does not advance block checkpoints on malformed explorer responses. The AK1111 checkout on this server is not a Git repository, so this local patch must be ported to the deployment source repository before a Buddy deploy.
 
 ## HODL App-Side Cronops Rollout
 

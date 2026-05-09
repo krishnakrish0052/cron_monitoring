@@ -35,6 +35,8 @@ The `/monitoring/` dashboard shows:
 
 - AK1111 and HODL cron status from Healthchecks.
 - AMOLED black UI with the HODL Crons Monitoring logo and GitHub footer link.
+- Operator-first Action Center for down checks, running crons, external API errors, untracked processes, server pressure, and waiting-first-run jobs.
+- Sticky dashboard navigation plus cron table search/filter controls so operators can quickly isolate `down`, `up`, and `waiting first run` checks.
 - Selected cron duration charts with latest, average, and max duration.
 - Infrastructure cards for CPU, memory, disk, and NGINX requests using the observer's shared live metric source.
 - CPU cards label `live 1s`, `avg`, and `max 1h` so values do not appear inconsistent.
@@ -91,7 +93,12 @@ TypeError: string indices must be integers, not 'str'
 
 HODL is now being fixed in the app repo on branch `cron-reliability-monitoring`. The HODL app has a `cronops` Django app that records cron jobs, runs, events, checkpoints, locks, DB counters, and progress. The monitoring dashboard merges HODL app-owned state from `http://127.0.0.1:8001/api/cronops/live/` with wrapper-level observer data.
 
-AK1111 remains wrapper-only in this phase.
+AK1111 was found to have the same Base explorer response-shape bug in:
+
+- `/home/ubuntu/ak1111-backend/lplock/utils/fetch_data.py`
+- `/home/ubuntu/ak1111-backend/dex/utils/fetch_investments.py`
+
+The server checkout has been patched to route those two cron fetchers through `/home/ubuntu/ak1111-backend/config/explorer.py`, which calls Etherscan V2 shape with `chainid=8453`, prefers `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validates `result` before iterating, classifies explorer failures, and avoids advancing block checkpoints after malformed explorer responses. This AK1111 checkout is not a Git repository on the server, so the same change must be copied into the AK1111 source-control repository used by deployment/Buddy before any future deploy overwrites it.
 
 Important HODL deployment note: add `ETHERSCAN_API_KEY` to the HODL environment for Etherscan V2 reliability. The code falls back to the existing `BSCSCAN_API_KEY`/`BASESCAN_API_KEY`, but the unified V2 endpoint should use an Etherscan V2 key.
 

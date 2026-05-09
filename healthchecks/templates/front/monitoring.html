@@ -27,7 +27,27 @@
 
         <div id="monitoring-summary" class="monitoring-summary"></div>
 
-        <div class="monitoring-panel monitoring-live-panel">
+        <div class="monitoring-quick-nav">
+            <a href="#monitoring-action-center">Action Center</a>
+            <a href="#monitoring-live-panel">Live Crons</a>
+            <a href="#monitoring-projects-panel">Cron Tables</a>
+            <a href="#monitoring-selected-panel">Selected Cron</a>
+            <a href="#monitoring-infra-panel">Infrastructure</a>
+            <a href="#monitoring-log-panel">Logs</a>
+        </div>
+
+        <div id="monitoring-action-center" class="monitoring-panel monitoring-action-center">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>Action Center</h2>
+                    <p class="monitoring-muted">What needs attention first. Use this before scanning the full dashboard.</p>
+                </div>
+                <span id="monitoring-action-updated" class="monitoring-muted">Loading...</span>
+            </div>
+            <div id="monitoring-action-grid" class="monitoring-action-grid"></div>
+        </div>
+
+        <div id="monitoring-live-panel" class="monitoring-panel monitoring-live-panel">
             <div class="monitoring-project-head">
                 <div>
                     <h2>Live Cron Observer</h2>
@@ -58,7 +78,7 @@
             <div id="monitoring-live-alerts" class="monitoring-live-alerts"></div>
         </div>
 
-        <div id="monitoring-orphans-panel" class="monitoring-panel monitoring-orphans-panel" style="display:none">
+        <div id="monitoring-orphans-panel" class="monitoring-panel monitoring-orphans-panel monitoring-secondary-panel" style="display:none">
             <div class="monitoring-project-head">
                 <div>
                     <h2>Orphan / Untracked Cron Processes</h2>
@@ -85,7 +105,7 @@
             </div>
         </div>
 
-        <div class="monitoring-panel monitoring-pg-panel">
+        <div class="monitoring-panel monitoring-pg-panel monitoring-secondary-panel">
             <div class="monitoring-project-head">
                 <div>
                     <h2>Postgres Health</h2>
@@ -98,7 +118,7 @@
             </div>
         </div>
 
-        <div class="monitoring-panel monitoring-http-panel">
+        <div class="monitoring-panel monitoring-http-panel monitoring-secondary-panel">
             <div class="monitoring-project-head">
                 <div>
                     <h2>External API Latency (24h)</h2>
@@ -126,7 +146,7 @@
             </div>
         </div>
 
-        <div class="monitoring-panel monitoring-slow-sql-panel">
+        <div class="monitoring-panel monitoring-slow-sql-panel monitoring-secondary-panel">
             <div class="monitoring-project-head">
                 <div>
                     <h2>Slow SQL (&gt;1s)</h2>
@@ -180,10 +200,25 @@
                     <div id="monitoring-external-errors" class="monitoring-external-errors"></div>
                 </div>
 
+                <div id="monitoring-projects-panel" class="monitoring-panel monitoring-project-filter">
+                    <div class="monitoring-project-head">
+                        <div>
+                            <h2>Cron Tables</h2>
+                            <p class="monitoring-muted">Search or filter before inspecting a cron. This does not change cron execution.</p>
+                        </div>
+                    </div>
+                    <div class="monitoring-filter-bar">
+                        <input id="monitoring-cron-search" type="search" placeholder="Search cron name, tag, schedule, project..." autocomplete="off">
+                        <button class="monitoring-filter active" data-status="all">All</button>
+                        <button class="monitoring-filter" data-status="down">Down</button>
+                        <button class="monitoring-filter" data-status="up">Up</button>
+                        <button class="monitoring-filter" data-status="new">Waiting first run</button>
+                    </div>
+                </div>
                 <div id="monitoring-projects"></div>
             </div>
             <div class="col-lg-4">
-                <div class="monitoring-panel">
+                <div id="monitoring-selected-panel" class="monitoring-panel">
                     <h2>Selected Cron</h2>
                     <div id="monitoring-selected-empty" class="text-muted">
                         Select a cron from the project tables.
@@ -198,12 +233,12 @@
                     </div>
                 </div>
 
-                <div class="monitoring-panel">
+                <div id="monitoring-infra-panel" class="monitoring-panel">
                     <h2>Infrastructure</h2>
                     <div id="monitoring-infra-grid" class="monitoring-infra-grid"></div>
                 </div>
 
-                <div class="monitoring-panel">
+                <div id="monitoring-log-panel" class="monitoring-panel">
                     <div class="monitoring-project-head">
                         <h2>Execution Log</h2>
                         <span id="monitoring-log-status" class="monitoring-muted">Select a cron</span>

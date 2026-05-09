@@ -24,6 +24,9 @@
 - Added request tracing for `requests`, DB tracing summaries, bounded Python line/function tracing, and external API failure classification.
 - Added observer-owned live server samples so CPU/RAM/disk values are consistent between live and infrastructure panels.
 - Added recent completed runs and external API error panels to `/monitoring/`.
+- Added an operator-first Action Center, sticky quick navigation, and cron table search/status filters to make `/monitoring/` easier to use during incidents.
+- Patched the local AK1111 server checkout for the same explorer response-shape crash in `lplock.utils.fetch_data.fetchInvestmentsFromBlockchain` and `dex.utils.fetch_investments.fetchTokenInvestments`.
+- Added AK1111 `config.explorer.fetch_normal_transactions()` to use Etherscan V2 request shape for Base (`chainid=8453`), prefer `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validate `result` before iterating transactions, classify explorer failures, and avoid advancing block checkpoints after malformed explorer responses.
 
 ## Design Decisions
 
@@ -49,6 +52,7 @@
 - If a cron has no internal print/log statements, the dashboard still shows HTTP, DB, stack, and Python trace events, but cannot invent business-specific step names.
 - Maximum Python tracing is bounded by `MONITORING_CRON_MAX_TRACE_EVENTS` and can be disabled with `MONITORING_CRON_TRACE=0`.
 - External explorer API errors like deprecated V1 endpoint responses should be fixed in the app repositories in a separate Buddy-safe change.
+- The AK1111 checkout at `/home/ubuntu/ak1111-backend` is not a Git repository on this server. The local explorer fix must be copied into the AK1111 source-control repository used by Buddy/deployment, or a future deploy may overwrite it.
 - On 2026-05-09, HODL app-side cron reliability work started on branch `cron-reliability-monitoring` in `/home/ubuntu/hodlbackend2/HODL-2025`.
 - HODL now has an app-owned `cronops` Django app with DB-backed cron jobs, runs, events, checkpoints, and per-cron locks.
 - HODL duplicate cron runs are skipped per cron key, while different cron jobs can still run in parallel.

@@ -5,6 +5,8 @@
     var selectedCode = null;
     var selectedRun = null;
     var lastLive = null;
+    var lastOverview = null;
+    var cronFilter = {text: "", status: "all"};
     var istFormatter = new Intl.DateTimeFormat("en-IN", {
         timeZone: "Asia/Kolkata",
         year: "numeric",
@@ -25,6 +27,10 @@
         var div = document.createElement("div");
         div.textContent = value == null ? "" : value;
         return div.innerHTML;
+    }
+
+    function attr(value) {
+        return esc(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
     function toMs(value) {
@@ -205,9 +211,101 @@
         }).join("");
     }
 
+    function renderActionCenter() {
+        var overview = lastOverview || {};
+        var live = lastLive || {};
+        var totals = overview.totals || {};
+        var liveTotals = live.totals || {};
+        var server = live.server || {};
+        var down = totals.down || 0;
+        var waiting = totals.new || 0;
+        var running = liveTotals.running || 0;
+        var stale = liveTotals.stale || 0;
+        var externalErrors = (live.external_errors || []).length;
+        var orphanCount = (live.orphans || []).length;
+        var serverCpu = Number(server.cpu_percent || 0);
+        var serverRam = Number(server.memory_percent || 0);
+        var pressure = Math.max(serverCpu, serverRam);
+        var pressureText = "CPU " + formatNumber(serverCpu, 1) + "% · RAM " + formatNumber(serverRam, 1) + "%";
+        var updatedAt = live.generated_at_ist || overview.generated_at_ist || new Date().toISOString();
+        var cards = [
+            {
+                label: "Failed / Down",
+                value: down,
+                note: down ? "Open Cron Tables filtered by Down." : "No down checks right now.",
+                state: down ? "bad" : "ok"
+            },
+            {
+                label: "Running Now",
+                value: running,
+                note: running ? "Live observer is tracking active processes." : "No cron currently active.",
+                state: stale ? "warn" : "ok"
+            },
+            {
+                label: "External API",
+                value: externalErrors,
+                note: externalErrors ? "Explorer/API failures found in traces." : "No recent explorer/API errors.",
+                state: externalErrors ? "bad" : "ok"
+            },
+            {
+                label: "Untracked Processes",
+                value: orphanCount,
+                note: orphanCount ? "Review orphan table before killing anything." : "No orphan cron processes.",
+                state: orphanCount ? "warn" : "ok"
+            },
+            {
+                label: "Server Pressure",
+                value: pressureText,
+                note: "Live 1s sample from observer.",
+                state: pressure >= 85 ? "bad" : pressure >= 70 ? "warn" : "ok"
+            },
+            {
+                label: "Waiting First Run",
+                value: waiting,
+                note: waiting ? "Scheduled jobs that have not reached first due time." : "No waiting-first-run checks.",
+                state: waiting ? "warn" : "ok"
+            }
+        ];
+        var grid = $("monitoring-action-grid");
+        if (grid) {
+            grid.innerHTML = cards.map(function (card) {
+                return '<div class="action-card ' + esc(card.state) + '">' +
+                    '<span>' + esc(card.label) + '</span>' +
+                    '<strong>' + esc(card.value) + '</strong>' +
+                    '<small>' + esc(card.note) + '</small>' +
+                '</div>';
+            }).join("");
+        }
+        var updated = $("monitoring-action-updated");
+        if (updated) updated.textContent = "Updated " + formatIST(updatedAt);
+    }
+
+    function applyCronFilter() {
+        var rows = document.querySelectorAll(".monitoring-cron-row");
+        var text = (cronFilter.text || "").trim().toLowerCase();
+        Array.prototype.forEach.call(rows, function (row) {
+            var statusOk = cronFilter.status === "all" || row.dataset.status === cronFilter.status;
+            var textOk = !text || (row.dataset.search || "").indexOf(text) !== -1;
+            row.style.display = statusOk && textOk ? "" : "none";
+        });
+        Array.prototype.forEach.call(document.querySelectorAll(".project-panel"), function (panel) {
+            var visible = Array.prototype.some.call(panel.querySelectorAll(".monitoring-cron-row"), function (row) {
+                return row.style.display !== "none";
+            });
+            panel.style.display = visible ? "" : "none";
+        });
+    }
+
     function renderProjects(projects) {
         $("monitoring-projects").innerHTML = projects.map(function (project) {
             var rows = project.checks.map(function (check) {
+                var search = [
+                    project.name,
+                    check.name,
+                    check.tags,
+                    check.schedule,
+                    check.status_label || check.status
+                ].join(" ").toLowerCase();
                 var scheduleCell = '<code>' + esc(check.schedule || "-") + '</code>';
                 if (check.next_due_ist || check.next_due) {
                     scheduleCell += '<br><small class="monitoring-subtext">Next ' + esc(timeUntil(check.next_due || check.next_due_ist)) + '</small>';
@@ -219,7 +317,7 @@
                 } else if (check.next_due) {
                     lastPingCell += '<br><small class="monitoring-subtext">Expected ' + esc(timeUntil(check.next_due)) + '</small>';
                 }
-                return '<tr>' +
+                return '<tr class="monitoring-cron-row" data-status="' + attr(check.status) + '" data-search="' + attr(search) + '">' +
                     '<td><span class="monitoring-status ' + esc(check.status) + '">' + esc(check.status_label || check.status) + '</span></td>' +
                     '<td><strong>' + esc(check.name) + '</strong><br><small class="monitoring-muted">' + esc(check.tags) + '</small></td>' +
                     '<td>' + scheduleCell + '</td>' +
@@ -254,6 +352,7 @@
                 loadCheckLive(selectedCode);
             });
         });
+        applyCronFilter();
     }
 
     function renderMetricCard(key, metric) {
@@ -295,8 +394,10 @@
         return fetch(root.dataset.overviewUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                lastOverview = data;
                 renderSummary(data.totals || {});
                 renderProjects(data.projects || []);
+                renderActionCenter();
             });
     }
 
@@ -468,6 +569,7 @@
                 renderPostgres(data);
                 renderHttpStats(data);
                 renderSlowSQL(data);
+                renderActionCenter();
             });
     }
 
@@ -721,6 +823,21 @@
     }
 
     $("monitoring-refresh").addEventListener("click", refresh);
+    if ($("monitoring-cron-search")) {
+        $("monitoring-cron-search").addEventListener("input", function (event) {
+            cronFilter.text = event.target.value || "";
+            applyCronFilter();
+        });
+    }
+    Array.prototype.forEach.call(document.querySelectorAll(".monitoring-filter"), function (button) {
+        button.addEventListener("click", function () {
+            cronFilter.status = button.dataset.status || "all";
+            Array.prototype.forEach.call(document.querySelectorAll(".monitoring-filter"), function (item) {
+                item.classList.toggle("active", item === button);
+            });
+            applyCronFilter();
+        });
+    });
     refresh();
     setInterval(loadLive, 1000);
     setInterval(loadInfrastructure, 5000);

@@ -13,6 +13,10 @@
     --green: #4dff88;
 }
 
+html {
+    scroll-behavior: smooth;
+}
+
 body.page-monitoring {
     background:
         radial-gradient(circle at 14% 8%, rgba(0, 245, 212, .16), transparent 28rem),
@@ -100,6 +104,135 @@ body.page-monitoring .footer {
     gap: 12px;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     margin-bottom: 18px;
+}
+
+.monitoring-quick-nav {
+    align-items: center;
+    backdrop-filter: blur(16px);
+    background: rgba(0, 0, 0, .76);
+    border: 1px solid rgba(0, 245, 212, .18);
+    border-radius: 999px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 18px;
+    padding: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 4;
+}
+
+.monitoring-quick-nav a {
+    border: 1px solid rgba(142, 163, 181, .24);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 850;
+    padding: 7px 12px;
+    text-decoration: none;
+    transition: border-color .18s ease, color .18s ease, box-shadow .18s ease;
+}
+
+.monitoring-quick-nav a:hover {
+    border-color: var(--cyan);
+    box-shadow: 0 0 18px rgba(0, 245, 212, .18);
+    color: var(--cyan);
+}
+
+#monitoring-action-center,
+#monitoring-live-panel,
+#monitoring-projects-panel,
+#monitoring-selected-panel,
+#monitoring-infra-panel,
+#monitoring-log-panel {
+    scroll-margin-top: 82px;
+}
+
+.monitoring-action-center {
+    border-color: rgba(255, 176, 0, .34);
+}
+
+.monitoring-action-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.action-card {
+    background:
+        linear-gradient(145deg, rgba(255, 255, 255, .055), rgba(255, 255, 255, .015)),
+        radial-gradient(circle at 100% 0, rgba(0, 245, 212, .12), transparent 60%);
+    border: 1px solid rgba(142, 163, 181, .18);
+    border-radius: 16px;
+    min-height: 116px;
+    padding: 14px;
+}
+
+.action-card span,
+.action-card small {
+    color: var(--muted);
+    display: block;
+}
+
+.action-card span {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.action-card strong {
+    color: var(--text);
+    display: block;
+    font-size: 25px;
+    line-height: 1.1;
+    margin: 8px 0;
+}
+
+.action-card.ok strong { color: var(--green); }
+.action-card.warn strong { color: var(--gold); }
+.action-card.bad strong { color: var(--red); }
+
+.monitoring-secondary-panel {
+    border-color: rgba(142, 163, 181, .14);
+}
+
+.monitoring-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+#monitoring-cron-search {
+    background: rgba(0, 0, 0, .86);
+    border: 1px solid rgba(0, 245, 212, .28);
+    border-radius: 999px;
+    color: var(--text);
+    flex: 1 1 320px;
+    outline: none;
+    padding: 9px 14px;
+}
+
+#monitoring-cron-search:focus {
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 3px rgba(0, 245, 212, .12);
+}
+
+.monitoring-filter {
+    background: rgba(255, 255, 255, .035);
+    border: 1px solid rgba(142, 163, 181, .24);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 850;
+    padding: 8px 12px;
+}
+
+.monitoring-filter.active,
+.monitoring-filter:hover {
+    background: rgba(0, 245, 212, .12);
+    border-color: var(--cyan);
+    color: var(--text);
 }
 
 .monitoring-card,
