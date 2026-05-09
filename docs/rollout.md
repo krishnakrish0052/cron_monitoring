@@ -12,6 +12,11 @@
 - Added `cron-observer`, a PM2-managed Python service for per-second live cron state.
 - Added live heartbeat tracking with PID, elapsed time, CPU/RAM, DB query counts, slow query detection, stack summaries, and IST timestamps.
 - Added `/monitoring/api/live/` and `/monitoring/api/checks/<uuid>/live/`.
+- Rebranded the UI to `HODL Crons Monitoring` with an AMOLED black dashboard and monitoring-owned SVG logo.
+- Replaced mixed CPU windows with one observer-owned live metric source. CPU is labeled as live 1s, average, and max 1h.
+- Added structured `.events.jsonl` trace streams for stdout/stderr/logging, DB queries, HTTP requests, Python trace events, failures, and run end.
+- Added HTTP/API classification for BscScan/BaseScan/Etherscan response-shape errors, including deprecated V1 endpoint responses.
+- Converted dashboard-facing times, graph labels, run history, and live panels to IST.
 - Added sanitized Git versioning for `https://github.com/krishnakrish0052/cron_monitoring.git`.
 - Kept Healthchecks ping/event logs as the canonical ping history.
 - Kept Prometheus internal only and did not add Grafana.
@@ -61,9 +66,19 @@ Expected results:
 - Prometheus targets are up for Healthchecks, node exporter, and NGINX exporter.
 - PM2 shows `cron-observer` online.
 - `/monitoring/api/live/` returns `generated_at_ist`, `active_crons`, `recent_runs`, and aggregate cron CPU/RAM usage.
+- `/monitoring/api/live/` also returns `server_series`, `external_errors`, and recent trace events for completed runs.
+- `/monitoring/api/checks/<uuid>/live/` returns the active heartbeat, stale heartbeat, and last completed run trace for one cron.
 - After a monitored cron runs, a `.json` metadata file and `.log` execution file appear in `/home/ubuntu/monitoring/logs/crons`.
+- After a monitored cron runs, a `.events.jsonl` file appears beside the `.log` and `.json` metadata files.
 - While a monitored cron runs, a heartbeat file appears in `/home/ubuntu/monitoring/runtime/observer/heartbeats`.
+- Dashboard-visible timestamps show IST.
 - Daily checks that have never run show `waiting first run` and a future next-run time, not `down`.
+
+## Known App-Side Issue Surfaced By Monitoring
+
+Some current AK1111/HODL failures are real cron code failures, not Healthchecks ping failures. Several app functions call explorer APIs and assume `data["result"]` is a list. When the external API returns a string error such as a deprecated V1 endpoint warning, the app code raises `TypeError: string indices must be integers, not 'str'`.
+
+This rollout classifies and displays that root cause. It intentionally does not edit the AK1111 or HODL app repositories.
 
 ## Rollback
 

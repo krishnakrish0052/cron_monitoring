@@ -1,4 +1,4 @@
-# Monitoring Stack
+# HODL Crons Monitoring
 
 This directory owns the monitoring runtime for AK1111 and HODL. The main app repositories stay in their original locations and are not edited by the monitoring layer.
 
@@ -17,7 +17,7 @@ This directory owns the monitoring runtime for AK1111 and HODL. The main app rep
 
 ## Services
 
-Healthchecks remains available at `http://43.204.86.173:9000/`. The authenticated monitoring dashboard is at `/monitoring/`.
+Healthchecks remains available at `http://43.204.86.173:9000/`. The authenticated monitoring dashboard is branded as `HODL Crons Monitoring` and is available at `/monitoring/`.
 
 Prometheus is internal only on `127.0.0.1:9090` and scrapes:
 
@@ -34,8 +34,10 @@ All monitoring-related services are managed by PM2 from `/home/ubuntu/monitoring
 The `/monitoring/` dashboard shows:
 
 - AK1111 and HODL cron status from Healthchecks.
+- AMOLED black UI with the HODL Crons Monitoring logo and GitHub footer link.
 - Selected cron duration charts with latest, average, and max duration.
-- Infrastructure cards for CPU, memory, disk, and NGINX requests.
+- Infrastructure cards for CPU, memory, disk, and NGINX requests using the observer's shared live metric source.
+- CPU cards label `live 1s`, `avg`, and `max 1h` so values do not appear inconsistent.
 - Memory and disk total/used/free values.
 - NGINX request rate, active connections, and requests over the graph window.
 - Healthchecks ping/event logs through the existing check log links.
@@ -43,9 +45,12 @@ The `/monitoring/` dashboard shows:
 - Checks with no first ping are labeled `waiting first run` instead of the raw Healthchecks `new` state.
 - Cron rows include the next expected run time, calculated from the cron schedule and timezone.
 - Rows are sorted by operational priority: `down`, `grace`, `up`, `waiting first run`, then `paused`.
-- Live Cron Observer shows running crons, elapsed time, current stage, PID, CPU/RAM, DB query counts, slow queries, stale heartbeats, and IST timestamps.
+- Live Cron Observer shows running crons, elapsed time, current stage, PID, CPU/RAM, DB query counts, HTTP counts, slow queries, stale heartbeats, and IST timestamps.
+- Recently Finished shows completed runs with trace summaries.
+- External API Errors surfaces BscScan/BaseScan/Etherscan response-shape failures detected by the wrapper.
 - `/monitoring/api/live/` returns the live observer state for the dashboard.
 - `/monitoring/api/checks/<uuid>/live/` returns live observer state for one cron.
+- All user-facing dashboard times are shown in IST. Raw JSON still includes UTC fields for debugging.
 
 `waiting first run` means Healthchecks has not received any ping for that check yet. This is normal for daily jobs until their first scheduled execution after the check was created.
 
@@ -56,17 +61,35 @@ Cron execution logs are captured without editing the main app repos. The wrapper
 - Start and end timestamps.
 - Project, cron function, Healthchecks UUID, and run ID.
 - Status, duration, stdout, stderr, Python logging output, and tracebacks.
-- Per-second heartbeat state including UTC/IST timestamps, PID, elapsed time, CPU/RAM from `/proc`, stack summary, DB query counts, latest query, slow query count, and stuck/no-progress warning.
+- Structured `.events.jsonl` traces for stdout, stderr, logging, DB queries, HTTP calls, Python trace events, failures, and run end.
+- HTTP calls are traced through `requests.Session.request` with sanitized URLs, status code, duration, result type/count, and external API classification.
+- Django DB calls are traced through `connection.execute_wrapper` with query duration, operation/table summary, fingerprint, latest query, and slow-query markers.
+- Bounded Python tracing records app-file call/line/return/exception events without editing app repos.
+- Per-second heartbeat state including UTC/IST timestamps, PID, elapsed time, CPU/RAM from `/proc`, stack summary, DB query counts, HTTP counts, latest trace, latest query, slow query count, and stuck/no-progress warning.
 
 Logs are stored as:
 
 ```text
 /home/ubuntu/monitoring/logs/crons/<project>/<healthchecks-uuid>/<run-id>.log
 /home/ubuntu/monitoring/logs/crons/<project>/<healthchecks-uuid>/<run-id>.json
+/home/ubuntu/monitoring/logs/crons/<project>/<healthchecks-uuid>/<run-id>.events.jsonl
 /home/ubuntu/monitoring/runtime/observer/heartbeats/<project>/<healthchecks-uuid>/<run-id>.json
 ```
 
-If a cron function does not print or log internal progress, the execution log will still show wrapper start/end/status/duration, but it cannot show hidden business steps without adding logging inside the app code.
+If a cron function only prints `success`, the dashboard still infers progress from HTTP calls, DB queries, stack snapshots, and Python trace events. It cannot invent app-specific business step names unless the app emits them.
+
+## Known App-Side Cron Failure Pattern
+
+Recent traces show several AK1111/HODL cron failures are not Healthchecks ping problems. The wrapper successfully calls the cron, then the app cron code receives BscScan/BaseScan/Etherscan-style JSON where `result` is a string error instead of a transaction list.
+
+Typical root cause surfaced by monitoring:
+
+```text
+External explorer API returned deprecated V1 endpoint error; app code expects a transaction list.
+TypeError: string indices must be integers, not 'str'
+```
+
+Fixing those endpoint/API parser issues belongs in the AK1111/HODL app repos and should be handled separately from this monitoring-only codebase.
 
 ## GitHub Versioning
 

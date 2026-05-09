@@ -18,6 +18,12 @@
 - Added live dashboard APIs and UI sections for running crons, aggregate cron resource usage, stale/stuck alerts, and IST timestamps.
 - Initialized the monitoring codebase for sanitized GitHub versioning.
 - Updated crontabs to point to `/home/ubuntu/monitoring/django/.../manage_monitored.py`.
+- Rebranded the Healthchecks UI and dashboard as `HODL Crons Monitoring`.
+- Added the monitoring-owned SVG logo and AMOLED black dashboard styling.
+- Added structured event streams beside each cron execution log.
+- Added request tracing for `requests`, DB tracing summaries, bounded Python line/function tracing, and external API failure classification.
+- Added observer-owned live server samples so CPU/RAM/disk values are consistent between live and infrastructure panels.
+- Added recent completed runs and external API error panels to `/monitoring/`.
 
 ## Design Decisions
 
@@ -28,6 +34,8 @@
 - Keep Prometheus bound to localhost.
 - Use a monitoring-owned observer service instead of editing Buddy-managed application repositories.
 - Exclude runtime files, secrets, venvs, logs, DB files, and Prometheus data from Git.
+- Show IST as the primary dashboard timezone. Keep UTC only in raw JSON/log metadata for debugging.
+- Treat BscScan/BaseScan/Etherscan string-result failures as app/external API issues, not Healthchecks ping issues.
 
 ## Operational Notes
 
@@ -36,7 +44,10 @@
 - The dashboard next-run value is calculated from each Healthchecks cron schedule and timezone; it is display-only and does not change cron execution.
 - Live observer data is written to `/home/ubuntu/monitoring/runtime/observer/state.json` every second.
 - Per-run heartbeat files live under `/home/ubuntu/monitoring/runtime/observer/heartbeats` and are intentionally not committed.
+- Per-run structured trace files live beside raw cron logs as `<run-id>.events.jsonl`.
 - Stuck detection currently means no output, logging, or DB query progress for the configured threshold.
-- If a cron has no internal print/log statements, only wrapper metadata is visible.
+- If a cron has no internal print/log statements, the dashboard still shows HTTP, DB, stack, and Python trace events, but cannot invent business-specific step names.
+- Maximum Python tracing is bounded by `MONITORING_CRON_MAX_TRACE_EVENTS` and can be disabled with `MONITORING_CRON_TRACE=0`.
+- External explorer API errors like deprecated V1 endpoint responses should be fixed in the app repositories in a separate Buddy-safe change.
 - The Healthchecks Django check currently warns that `EMAIL_HOST` is not set; this warning existed before the dashboard/log changes.
 - PM2 may warn that the daemon version differs from the local CLI version; use `pm2 update` during a quiet window if needed.

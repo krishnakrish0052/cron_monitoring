@@ -46,7 +46,8 @@ module.exports = {
         DEBUG: 'False',
         PYTHONPATH: '/home/ubuntu/monitoring/django',
         SITE_ROOT: 'http://43.204.86.173:9000',
-        SITE_NAME: 'Healthchecks',
+        SITE_NAME: 'HODL Crons Monitoring',
+        SITE_LOGO_URL: '/static/img/hodl-monitoring-logo.svg',
         ALLOWED_HOSTS: '43.204.86.173,localhost,127.0.0.1'
       },
       restart_delay: 4000,
@@ -65,7 +66,8 @@ module.exports = {
         DEBUG: 'False',
         PYTHONPATH: '/home/ubuntu/monitoring/django',
         SITE_ROOT: 'http://43.204.86.173:9000',
-        SITE_NAME: 'Healthchecks',
+        SITE_NAME: 'HODL Crons Monitoring',
+        SITE_LOGO_URL: '/static/img/hodl-monitoring-logo.svg',
         ALLOWED_HOSTS: '43.204.86.173,localhost,127.0.0.1'
       },
       restart_delay: 4000,
@@ -84,7 +86,8 @@ module.exports = {
         DEBUG: 'False',
         PYTHONPATH: '/home/ubuntu/monitoring/django',
         SITE_ROOT: 'http://43.204.86.173:9000',
-        SITE_NAME: 'Healthchecks',
+        SITE_NAME: 'HODL Crons Monitoring',
+        SITE_LOGO_URL: '/static/img/hodl-monitoring-logo.svg',
         ALLOWED_HOSTS: '43.204.86.173,localhost,127.0.0.1'
       },
       restart_delay: 4000,

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="HODL Crons Monitoring">
+  <defs>
+    <linearGradient id="g" x1="12" y1="8" x2="86" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00f5d4"/>
+      <stop offset=".52" stop-color="#00b4ff"/>
+      <stop offset="1" stop-color="#ffb000"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="96" height="96" rx="24" fill="#020403"/>
+  <path d="M22 61V25h10v13h14V25h10v36H46V47H32v14H22Z" fill="url(#g)" filter="url(#glow)"/>
+  <path d="M64 26h9v25h13v10H64V26Z" fill="url(#g)" filter="url(#glow)"/>
+  <path d="M17 73c13-9 24-9 33 0s20 9 30 0" fill="none" stroke="#00f5d4" stroke-width="5" stroke-linecap="round"/>
+</svg>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import time
 import urllib.parse
 import urllib.request
@@ -17,6 +18,10 @@ LOG_ROOT = Path(os.environ.get("MONITORING_CRON_LOG_ROOT", str(MONITORING_ROOT /
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
 STALE_SECONDS = int(os.environ.get("MONITORING_OBSERVER_STALE_SECONDS", "90"))
 IST = ZoneInfo("Asia/Kolkata")
+SERVER_SERIES_LIMIT = int(os.environ.get("MONITORING_SERVER_SERIES_LIMIT", "3600"))
+_PREVIOUS_CPU = None
+_RECENT_CACHE_AT = 0.0
+_RECENT_CACHE = []
 
 
 def utcnow() -> datetime:
@@ -38,7 +43,7 @@ def load_json(path: Path) -> dict | None:
 
 
 def pid_exists(pid: int | None) -> bool:
-    return bool(pid) and Path("/proc") .joinpath(str(pid)).exists()
+    return bool(pid) and Path("/proc").joinpath(str(pid)).exists()
 
 
 def parse_ts(value: str | None) -> datetime | None:
@@ -67,14 +72,133 @@ def prom_query(query: str) -> float | None:
     return None
 
 
+def read_events(path_value: str | None, limit: int = 20) -> list[dict]:
+    if not path_value:
+        return []
+    path = Path(path_value)
+    if not path.exists():
+        return []
+    with contextlib.suppress(Exception):
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        events = []
+        for line in lines[-limit:]:
+            with contextlib.suppress(Exception):
+                events.append(json.loads(line))
+        return events
+    return []
+
+
+def read_cpu_snapshot() -> dict | None:
+    global _PREVIOUS_CPU
+    with contextlib.suppress(Exception):
+        values = Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()[1:]
+        numbers = [int(item) for item in values]
+        idle = numbers[3] + (numbers[4] if len(numbers) > 4 else 0)
+        total = sum(numbers)
+        sample = {"idle": idle, "total": total}
+        percent = None
+        if _PREVIOUS_CPU:
+            total_delta = total - _PREVIOUS_CPU["total"]
+            idle_delta = idle - _PREVIOUS_CPU["idle"]
+            if total_delta > 0:
+                percent = round(100 * (1 - idle_delta / total_delta), 2)
+        _PREVIOUS_CPU = sample
+        return {"percent": percent}
+    return None
+
+
+def read_memory_snapshot() -> dict:
+    data = {}
+    with contextlib.suppress(Exception):
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            key, value = line.split(":", 1)
+            data[key] = int(value.strip().split()[0]) * 1024
+    total = data.get("MemTotal")
+    available = data.get("MemAvailable")
+    used = total - available if total is not None and available is not None else None
+    percent = round((used / total) * 100, 2) if used is not None and total else None
+    return {
+        "percent": percent,
+        "used_bytes": used,
+        "total_bytes": total,
+        "free_bytes": available,
+    }
+
+
+def read_disk_snapshot() -> dict:
+    usage = shutil.disk_usage("/")
+    used = usage.total - usage.free
+    return {
+        "percent": round((used / usage.total) * 100, 2),
+        "used_bytes": used,
+        "total_bytes": usage.total,
+        "free_bytes": usage.free,
+    }
+
+
+def server_snapshot(previous_state: dict | None = None) -> dict:
+    cpu = read_cpu_snapshot() or {}
+    memory = read_memory_snapshot()
+    disk = read_disk_snapshot()
+    if cpu.get("percent") is None:
+        cpu["percent"] = prom_query('100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m])))')
+
+    return {
+        "cpu_percent": cpu.get("percent"),
+        "memory_percent": memory.get("percent"),
+        "disk_percent": disk.get("percent"),
+        "nginx_requests_per_second": prom_query("rate(nginx_http_requests_total[1m])"),
+        "nginx_active": prom_query("nginx_connections_active"),
+        "load1": prom_query("node_load1"),
+        "cores": prom_query('count(count by (cpu) (node_cpu_seconds_total{mode="idle"}))'),
+        "memory": memory,
+        "disk": disk,
+    }
+
+
+def append_server_series(previous_state: dict | None, now: datetime, server: dict) -> list[dict]:
+    series = []
+    if previous_state:
+        series = list(previous_state.get("server_series") or [])
+    series.append(
+        {
+            "ts": int(now.timestamp()),
+            "at_ist": iso_ist(now),
+            "cpu_percent": server.get("cpu_percent"),
+            "memory_percent": server.get("memory_percent"),
+            "disk_percent": server.get("disk_percent"),
+            "nginx_requests_per_second": server.get("nginx_requests_per_second"),
+        }
+    )
+    return series[-SERVER_SERIES_LIMIT:]
+
+
 def recent_runs(limit: int = 25) -> list[dict]:
+    global _RECENT_CACHE_AT, _RECENT_CACHE
+    current = time.monotonic()
+    if _RECENT_CACHE and current - _RECENT_CACHE_AT < 10:
+        return _RECENT_CACHE[:limit]
+
     items = []
     for path in LOG_ROOT.glob("*/*/*.json"):
         payload = load_json(path)
         if payload:
+            payload.setdefault("events_path", str(path.with_suffix(".events.jsonl")))
+            events = read_events(payload.get("events_path"), 12)
+            payload["recent_events"] = events
+            payload["external_error"] = payload.get("external_error") or next(
+                (
+                    event.get("data", {}).get("classification")
+                    for event in reversed(events)
+                    if event.get("data", {}).get("classification", {}).get("severity") in ("warning", "error")
+                ),
+                None,
+            )
             items.append(payload)
     items.sort(key=lambda item: item.get("started_at") or "", reverse=True)
-    return items[:limit]
+    _RECENT_CACHE = items[:limit]
+    _RECENT_CACHE_AT = current
+    return _RECENT_CACHE[:limit]
 
 
 def collect_heartbeats() -> tuple[list[dict], list[dict]]:
@@ -85,6 +209,7 @@ def collect_heartbeats() -> tuple[list[dict], list[dict]]:
         payload = load_json(path)
         if not payload:
             continue
+        payload["recent_events"] = read_events(payload.get("events_path"), 20)
         updated = parse_ts(payload.get("updated_at_utc"))
         age = (current - updated).total_seconds() if updated else 999999
         payload["heartbeat_age_seconds"] = round(age, 3)
@@ -105,6 +230,7 @@ def collect_heartbeats() -> tuple[list[dict], list[dict]]:
 
 
 def collect_state() -> dict:
+    previous_state = load_json(state_path())
     active, stale = collect_heartbeats()
     total_cpu = 0.0
     total_rss = 0
@@ -119,12 +245,31 @@ def collect_state() -> dict:
         total_slow += int(db.get("slow_count") or 0)
 
     now = utcnow()
+    server = server_snapshot(previous_state)
+    server_series = append_server_series(previous_state, now, server)
+    recent = recent_runs()
+    external_errors = []
+    for item in active + stale + recent:
+        error = (item.get("http") or {}).get("external_error") or item.get("external_error")
+        if error:
+            external_errors.append(
+                {
+                    "project": item.get("project"),
+                    "function": item.get("function"),
+                    "run_id": item.get("run_id"),
+                    "severity": error.get("severity"),
+                    "type": error.get("type"),
+                    "message": error.get("message"),
+                }
+            )
     return {
         "generated_at_utc": iso(now),
         "generated_at_ist": iso_ist(now),
         "active_crons": active,
         "stale_crons": stale,
-        "recent_runs": recent_runs(),
+        "recent_runs": recent,
+        "external_errors": external_errors[:20],
+        "server_series": server_series,
         "totals": {
             "running": len(active),
             "stale": len(stale),
@@ -132,18 +277,9 @@ def collect_state() -> dict:
             "rss_bytes": total_rss,
             "db_queries": total_queries,
             "slow_db_queries": total_slow,
+            "processes": len(active),
         },
-        "server": {
-            "cpu_percent": prom_query('100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[2m])))'),
-            "memory_percent": prom_query(
-                "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))"
-            ),
-            "disk_percent": prom_query(
-                '100 * (1 - (node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / '
-                'node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"}))'
-            ),
-            "nginx_requests_per_second": prom_query("rate(nginx_http_requests_total[2m])"),
-        },
+        "server": server,
     }
 
 

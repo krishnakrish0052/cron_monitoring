@@ -1,7 +1,7 @@
 {% extends "base_project.html" %}
 {% load compress static %}
 
-{% block title %}Monitoring - {{ site_name }}{% endblock %}
+{% block title %}HODL Crons Monitoring{% endblock %}
 
 {% block containers %}
 <div class="container-fluid">
@@ -14,11 +14,15 @@
          data-runs-template="/monitoring/api/checks/__CODE__/runs/"
          data-log-template="/monitoring/api/checks/__CODE__/logs/">
         <div class="monitoring-header">
-            <div>
-                <h1>Monitoring</h1>
-                <p>AK1111, HODL, server health, and infrastructure graphs.</p>
+            <div class="monitoring-brand">
+                <img src="{% static 'img/hodl-monitoring-logo.svg' %}" alt="HODL Crons Monitoring">
+                <div>
+                    <p class="monitoring-eyebrow">AMOLED live observability</p>
+                    <h1>HODL Crons Monitoring</h1>
+                    <p>AK1111, HODL, server health, cron traces, external API failures, and infrastructure graphs in IST.</p>
+                </div>
             </div>
-            <button id="monitoring-refresh" class="btn btn-default btn-sm">Refresh</button>
+            <button id="monitoring-refresh" class="btn monitoring-refresh-btn btn-sm">Refresh</button>
         </div>
 
         <div id="monitoring-summary" class="monitoring-summary"></div>
@@ -41,12 +45,13 @@
                             <th>CPU</th>
                             <th>RAM</th>
                             <th>DB</th>
+                            <th>HTTP</th>
                             <th>Stage</th>
                             <th>Last progress</th>
                         </tr>
                     </thead>
                     <tbody id="monitoring-live-crons">
-                        <tr><td colspan="7" class="monitoring-muted">No live data yet.</td></tr>
+                        <tr><td colspan="8" class="monitoring-muted">No live data yet.</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -55,6 +60,22 @@
 
         <div class="row">
             <div class="col-lg-8">
+                <div class="monitoring-panel">
+                    <div class="monitoring-project-head">
+                        <h2>Recently Finished</h2>
+                        <span class="monitoring-muted">Latest completed cron runs with trace summaries</span>
+                    </div>
+                    <div id="monitoring-recent-runs" class="monitoring-recent-runs"></div>
+                </div>
+
+                <div class="monitoring-panel">
+                    <div class="monitoring-project-head">
+                        <h2>External API Errors</h2>
+                        <span class="monitoring-muted">BscScan/BaseScan/Etherscan diagnostics from cron HTTP calls</span>
+                    </div>
+                    <div id="monitoring-external-errors" class="monitoring-external-errors"></div>
+                </div>
+
                 <div id="monitoring-projects"></div>
             </div>
             <div class="col-lg-4">
@@ -69,6 +90,7 @@
                         <div id="monitoring-duration-stats" class="monitoring-statline"></div>
                         <div id="monitoring-run-timeline" class="monitoring-run-timeline"></div>
                         <div id="monitoring-selected-links" class="monitoring-actions"></div>
+                        <div id="monitoring-trace-events" class="monitoring-trace-events"></div>
                     </div>
                 </div>
 

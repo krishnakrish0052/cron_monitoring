@@ -27,7 +27,7 @@ from hc.accounts.models import Profile, Project
 from hc.api.models import Check, Flip, prepare_durations
 from hc.front.views import _get_check_for_user
 from healthchecks_custom.metrics import render_monitoring_metrics
-from monitoring_common.cron_logs import iter_runs_for_uuid, read_run_log
+from monitoring_common.cron_logs import iter_runs_for_uuid, read_run_events, read_run_log
 from monitoring_observer.collector import read_state
 
 
@@ -45,6 +45,7 @@ MONITORING_PROJECTS = (
 )
 
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def _monitoring_config() -> list[dict[str, str]]:
@@ -108,10 +109,23 @@ def _series_values(result: list[dict]) -> list[dict]:
     points = []
     for ts, value in values:
         try:
-            points.append({"ts": int(float(ts)), "value": round(float(value), 4)})
+            timestamp = int(float(ts))
+            points.append(
+                {
+                    "ts": timestamp,
+                    "ts_ist": datetime_from_ts(timestamp).astimezone(IST).isoformat(),
+                    "value": round(float(value), 4),
+                }
+            )
         except (TypeError, ValueError):
             continue
     return points
+
+
+def datetime_from_ts(timestamp: int):
+    from datetime import datetime
+
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
 
 
 def _instant_value(query: str) -> float | None:
@@ -135,6 +149,22 @@ def _stats(points: list[dict]) -> dict:
         "max": round(max(values), 2),
         "avg": round(sum(values) / len(values), 2),
     }
+
+
+def _series_from_state(key: str, state: dict) -> list[dict]:
+    points = []
+    for point in state.get("server_series", []):
+        value = point.get(key)
+        if value is None:
+            continue
+        points.append(
+            {
+                "ts": point.get("ts"),
+                "ts_ist": point.get("at_ist"),
+                "value": round(float(value), 4),
+            }
+        )
+    return points[-3600:]
 
 
 def _bytes_payload(used_query: str, total_query: str, free_query: str) -> dict:
@@ -167,6 +197,8 @@ def _check_payload(check: Check) -> dict:
             next_due = None
 
     status_label = "waiting first run" if status == "new" else status
+    last_ping = check.last_ping.astimezone(IST) if check.last_ping else None
+    next_due_ist = next_due.astimezone(IST) if next_due else None
     return {
         "code": str(check.code),
         "name": check.name_then_code(),
@@ -175,7 +207,9 @@ def _check_payload(check: Check) -> dict:
         "status_label": status_label,
         "started": check.last_start is not None,
         "last_ping": check.last_ping.isoformat() if check.last_ping else None,
+        "last_ping_ist": last_ping.isoformat() if last_ping else None,
         "next_due": next_due.isoformat() if next_due else None,
+        "next_due_ist": next_due_ist.isoformat() if next_due_ist else None,
         "last_duration": (
             round(check.last_duration.total_seconds(), 2)
             if check.last_duration
@@ -224,7 +258,15 @@ def monitoring_overview(request: AuthenticatedHttpRequest) -> HttpResponse:
             }
         )
 
-    return JsonResponse({"projects": projects, "totals": totals, "generated_at": now().isoformat()})
+    current = now()
+    return JsonResponse(
+        {
+            "projects": projects,
+            "totals": totals,
+            "generated_at": current.isoformat(),
+            "generated_at_ist": current.astimezone(IST).isoformat(),
+        }
+    )
 
 
 @login_required
@@ -240,15 +282,22 @@ def monitoring_check_series(request: AuthenticatedHttpRequest, code: UUID) -> Ht
     for ping in pings:
         event_type = ping.kind or "success"
         ts = int(ping.created.timestamp())
-        ping_points.append({"ts": ts, "type": event_type})
+        ping_points.append({"ts": ts, "ts_ist": ping.created.astimezone(IST).isoformat(), "type": event_type})
         if ping.duration:
-            duration_points.append({"ts": ts, "value": round(ping.duration.total_seconds(), 2)})
+            duration_points.append(
+                {
+                    "ts": ts,
+                    "ts_ist": ping.created.astimezone(IST).isoformat(),
+                    "value": round(ping.duration.total_seconds(), 2),
+                }
+            )
 
     flips = list(Flip.objects.filter(owner=check).order_by("-id")[:100])
     flips.reverse()
     flip_points = [
         {
             "ts": int(flip.created.timestamp()),
+            "ts_ist": flip.created.astimezone(IST).isoformat(),
             "up": 1 if flip.new_status == "up" else 0,
             "status": flip.new_status,
         }
@@ -269,21 +318,15 @@ def monitoring_check_series(request: AuthenticatedHttpRequest, code: UUID) -> Ht
 def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse:
     window = 3600
     step = 60
-    cpu_points = _series_values(
-        _prom_query_range(
-            '100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])))',
-            window,
-            step,
-        )
+    state = read_state()
+    server = state.get("server", {})
+    cpu_points = _series_from_state("cpu_percent", state) or _series_values(
+        _prom_query_range('100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[5m])))', window, step)
     )
-    memory_points = _series_values(
-        _prom_query_range(
-            "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))",
-            window,
-            step,
-        )
+    memory_points = _series_from_state("memory_percent", state) or _series_values(
+        _prom_query_range("100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))", window, step)
     )
-    disk_points = _series_values(
+    disk_points = _series_from_state("disk_percent", state) or _series_values(
         _prom_query_range(
             '100 * (1 - (node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / '
             'node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"}))',
@@ -291,22 +334,27 @@ def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse
             step,
         )
     )
-    nginx_points = _series_values(
+    nginx_points = _series_from_state("nginx_requests_per_second", state) or _series_values(
         _prom_query_range("rate(nginx_http_requests_total[5m])", window, step)
     )
+    current = now()
 
     payload = {
         "window_seconds": window,
-        "generated_at": now().isoformat(),
+        "generated_at": current.isoformat(),
+        "generated_at_ist": current.astimezone(IST).isoformat(),
+        "source": "cron-observer direct 1s samples with Prometheus fallback",
         "metrics": {
             "cpu": {
-                "label": "CPU",
+                "label": "CPU live",
                 "unit": "%",
                 "series": cpu_points,
                 **_stats(cpu_points),
                 "details": {
-                    "load1": _instant_value("node_load1"),
-                    "cores": _instant_value('count(count by (cpu) (node_cpu_seconds_total{mode="idle"}))'),
+                    "load1": server.get("load1") or _instant_value("node_load1"),
+                    "cores": server.get("cores") or _instant_value('count(count by (cpu) (node_cpu_seconds_total{mode="idle"}))'),
+                    "live_window": "1s",
+                    "history_window": "1h",
                 },
             },
             "memory": {
@@ -314,7 +362,8 @@ def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse
                 "unit": "%",
                 "series": memory_points,
                 **_stats(memory_points),
-                "details": _bytes_payload(
+                "details": server.get("memory")
+                or _bytes_payload(
                     "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
                     "node_memory_MemTotal_bytes",
                     "node_memory_MemAvailable_bytes",
@@ -325,7 +374,8 @@ def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse
                 "unit": "%",
                 "series": disk_points,
                 **_stats(disk_points),
-                "details": _bytes_payload(
+                "details": server.get("disk")
+                or _bytes_payload(
                     'node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"} - '
                     'node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"}',
                     'node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"}',
@@ -338,7 +388,7 @@ def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse
                 "series": nginx_points,
                 **_stats(nginx_points),
                 "details": {
-                    "active_connections": _instant_value("nginx_connections_active"),
+                    "active_connections": server.get("nginx_active") or _instant_value("nginx_connections_active"),
                     "total_requests_window": _instant_value(
                         f"increase(nginx_http_requests_total[{window}s])"
                     ),
@@ -369,7 +419,19 @@ def monitoring_check_live(request: AuthenticatedHttpRequest, code: UUID) -> Http
         for item in state.get("stale_crons", [])
         if item.get("ping_uuid") == code_text
     ]
-    return JsonResponse({"check": _check_payload(check), "active": active, "stale": stale})
+    runs = iter_runs_for_uuid(str(check.code), limit=1)
+    last_run = runs[0] if runs else None
+    if last_run:
+        events = read_run_events(str(check.code), last_run["run_id"], limit=40)
+        last_run["recent_events"] = events.get("events", [])
+    return JsonResponse(
+        {
+            "check": _check_payload(check),
+            "active": active,
+            "stale": stale,
+            "last_run": last_run,
+        }
+    )
 
 
 @login_required
@@ -392,6 +454,7 @@ def monitoring_check_log(request: AuthenticatedHttpRequest, code: UUID) -> HttpR
         )
 
     payload = read_run_log(str(check.code), run_id)
+    payload["events"] = read_run_events(str(check.code), run_id, limit=120).get("events", [])
     for run in iter_runs_for_uuid(str(check.code), limit=50):
         if run.get("run_id") == run_id and run.get("error") and run["error"] not in payload.get("content", ""):
             payload["content"] = f"{payload.get('content', '')}\n[metadata traceback]\n{run['error']}"
