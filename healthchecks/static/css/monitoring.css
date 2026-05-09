@@ -433,19 +433,37 @@ body.page-monitoring .footer {
 }
 
 .monitoring-collapse-toggle {
-    background: rgba(255, 255, 255, .035);
-    border: 1px solid rgba(0, 245, 212, .24);
+    align-items: center;
+    background:
+        linear-gradient(135deg, rgba(0, 245, 212, .16), rgba(0, 180, 255, .06)),
+        rgba(0, 0, 0, .72);
+    border: 1px solid rgba(0, 245, 212, .38);
     border-radius: 999px;
+    box-shadow: 0 0 18px rgba(0, 245, 212, .1), inset 0 1px 0 rgba(255, 255, 255, .08);
     color: var(--cyan);
+    display: inline-flex;
+    gap: 7px;
     font-size: 11px;
     font-weight: 900;
     letter-spacing: .06em;
-    padding: 6px 10px;
+    padding: 7px 12px;
     text-transform: uppercase;
 }
 
+.monitoring-collapse-toggle:before {
+    color: var(--text);
+    content: "▾";
+    font-size: 12px;
+    line-height: 1;
+}
+
+.monitoring-collapsible.collapsed .monitoring-collapse-toggle:before {
+    content: "▸";
+}
+
 .monitoring-collapse-toggle:hover {
-    background: rgba(0, 245, 212, .1);
+    background: rgba(0, 245, 212, .14);
+    box-shadow: 0 0 26px rgba(0, 245, 212, .22);
     color: var(--text);
 }
 
@@ -467,17 +485,17 @@ body.page-monitoring .footer {
 }
 
 .monitoring-scroll-body {
-    max-height: 460px;
+    max-height: 340px;
     overflow: auto;
     padding-right: 4px;
 }
 
 .compact-list {
-    max-height: 340px;
+    max-height: 300px;
 }
 
 .cron-tables-scroll {
-    max-height: 760px;
+    max-height: 520px;
 }
 
 .monitoring-status {
@@ -594,7 +612,7 @@ body.page-monitoring .footer {
     background: rgba(0, 0, 0, .2);
     border: 1px solid rgba(142, 163, 181, .12);
     border-radius: 16px;
-    max-height: 430px;
+    max-height: 336px;
     overflow: auto;
 }
 
@@ -616,8 +634,17 @@ body.page-monitoring .footer {
 }
 
 .monitoring-collapse-body.table-responsive {
-    max-height: 360px;
+    max-height: 336px;
     overflow: auto;
+}
+
+.five-row-table-wrap {
+    max-height: 336px !important;
+    overflow: auto !important;
+}
+
+.five-row-table-wrap table {
+    margin-bottom: 0;
 }
 
 .live-summary-card {

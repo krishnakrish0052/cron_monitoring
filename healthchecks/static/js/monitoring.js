@@ -243,9 +243,6 @@
             if (!button || button.dataset.bound === "1") return;
             button.dataset.bound = "1";
             button.textContent = panel.classList.contains("collapsed") ? "Expand" : "Collapse";
-            button.addEventListener("click", function () {
-                setPanelExpanded(panel, panel.classList.contains("collapsed"));
-            });
         });
     }
 
@@ -374,7 +371,7 @@
                     '<h2>' + esc(project.name) + '</h2>' +
                     '<span class="monitoring-status ' + (healthLabel === "ok" ? "up" : "down") + '">' + esc(healthLabel) + '</span>' +
                 '</div>' +
-                '<div class="table-responsive"><table class="table table-condensed monitoring-table">' +
+                '<div class="table-responsive five-row-table-wrap"><table class="table table-condensed monitoring-table">' +
                     '<thead><tr><th>Status</th><th>Name</th><th>Schedule</th><th>Last ping</th><th>Duration</th><th></th><th></th><th></th></tr></thead>' +
                     '<tbody>' + rows + '</tbody>' +
                 '</table></div>' +
@@ -713,7 +710,7 @@
                     '<p class="monitoring-muted">' + esc(totalConns) + ' conns · ' + esc((project.ungranted_locks || []).length) +
                     ' locks · active crons ' + esc(project.active_crons || 0) + ' · DB ' + esc(project.database_size || "-") + '</p></div>' +
                 '</div>';
-            html += '<div class="table-responsive"><table class="table table-condensed monitoring-live-table db-maintenance-table">';
+            html += '<div class="table-responsive five-row-table-wrap"><table class="table table-condensed monitoring-live-table db-maintenance-table">';
             html += '<thead><tr><th>Risk</th><th>Table</th><th>Dead</th><th>Size</th><th>Recommendation</th><th>Actions</th></tr></thead><tbody>';
             (project.top_tables || []).forEach(function (table) {
                 var rec = table.recommendation || {};
@@ -752,7 +749,7 @@
         if (!jobs.length) {
             html += '<div class="monitoring-muted">No maintenance jobs queued yet.</div>';
         } else {
-            html += '<table class="table table-condensed monitoring-live-table"><thead><tr><th>Status</th><th>Project</th><th>Action</th><th>Table</th><th>Requested</th><th>Result</th></tr></thead><tbody>';
+            html += '<div class="table-responsive five-row-table-wrap"><table class="table table-condensed monitoring-live-table"><thead><tr><th>Status</th><th>Project</th><th>Action</th><th>Table</th><th>Requested</th><th>Result</th></tr></thead><tbody>';
             jobs.slice(0, 12).forEach(function (job) {
                 html += '<tr class="db-job-' + esc(job.status) + '">' +
                     '<td><span class="db-risk-chip ' + esc(job.status) + '">' + esc(job.status) + '</span></td>' +
@@ -763,7 +760,7 @@
                     '<td>' + esc(job.error || job.output || "-") + '</td>' +
                 '</tr>';
             });
-            html += '</tbody></table>';
+            html += '</tbody></table></div>';
         }
         html += '</div>';
         container.innerHTML = html;
@@ -888,7 +885,7 @@
                     body.innerHTML = '<div class="monitoring-muted">No history yet (cron has never finished a run in the last 30 days).</div>';
                     return;
                 }
-                var html = '<table class="table table-condensed monitoring-live-table"><thead><tr>';
+                var html = '<div class="table-responsive five-row-table-wrap"><table class="table table-condensed monitoring-live-table"><thead><tr>';
                 html += '<th>Date</th><th>Runs</th><th>OK</th><th>Fail</th><th>Skip</th><th>p50</th><th>p95</th><th>Avg DB queries</th>';
                 html += '</tr></thead><tbody>';
                 days.forEach(function (d) {
@@ -904,7 +901,7 @@
                         '<td>' + (d.avg_db_queries != null ? esc(d.avg_db_queries.toFixed(0)) : "-") + '</td>' +
                     '</tr>';
                 });
-                html += '</tbody></table>';
+                html += '</tbody></table></div>';
                 body.innerHTML = html;
             })
             .catch(function (err) {
@@ -1016,6 +1013,15 @@
     }
 
     initCollapsiblePanels();
+    root.addEventListener("click", function (event) {
+        var button = event.target.closest(".monitoring-collapse-toggle");
+        if (!button || !root.contains(button)) return;
+        var panel = button.closest(".monitoring-collapsible");
+        if (!panel) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setPanelExpanded(panel, panel.classList.contains("collapsed"));
+    });
     $("monitoring-refresh").addEventListener("click", refresh);
     if ($("monitoring-cron-search")) {
         $("monitoring-cron-search").addEventListener("input", function (event) {
