@@ -33,6 +33,13 @@
         return esc(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
+    function getCookie(name) {
+        var value = "; " + document.cookie;
+        var parts = value.split("; " + name + "=");
+        if (parts.length === 2) return decodeURIComponent(parts.pop().split(";").shift());
+        return "";
+    }
+
     function toMs(value) {
         if (!value) return NaN;
         if (typeof value === "number") return value > 100000000000 ? value : value * 1000;
@@ -632,6 +639,155 @@
         body.innerHTML = html;
     }
 
+    function actionLabel(action) {
+        return {
+            vacuum_analyze: "Vacuum",
+            reindex_concurrently: "Reindex",
+            vacuum_full: "Vacuum Full",
+            truncate_empty: "Truncate"
+        }[action] || action;
+    }
+
+    function confirmationFor(project, schemaName, tableName, action) {
+        if (action === "vacuum_full") return "VACUUM FULL " + project + "." + schemaName + "." + tableName;
+        if (action === "truncate_empty") return "TRUNCATE EMPTY " + project + "." + schemaName + "." + tableName;
+        return tableName;
+    }
+
+    function renderDbMaintenance(data) {
+        var container = $("monitoring-db-maintenance");
+        if (!container) return;
+        var projects = data.projects || [];
+        var jobs = data.recent_jobs || [];
+        var active = data.active_jobs || [];
+        var canManage = !!data.can_manage;
+        if (!projects.length) {
+            container.innerHTML = '<div class="monitoring-muted">No DB maintenance data available.</div>';
+            return;
+        }
+        var html = '<div class="db-maintenance-note">' +
+            '<strong>Dead rows</strong> are old row versions waiting for VACUUM cleanup. Buttons queue audited background jobs; blocking actions are refused while crons, locks, or long transactions are active.' +
+            (canManage ? '' : ' You can view recommendations, but only staff/superusers can queue jobs.') +
+        '</div>';
+        projects.forEach(function (project) {
+            if (project.status === "error") {
+                html += '<div class="external-error"><strong>' + esc(project.project_label) + '</strong><p>' + esc(project.error) + '</p></div>';
+                return;
+            }
+            var totalConns = (project.connections_by_state || []).reduce(function (sum, item) { return sum + (item.count || 0); }, 0);
+            html += '<div class="db-project-block">' +
+                '<div class="monitoring-project-head">' +
+                    '<div><h3>' + esc(project.project_label) + '</h3>' +
+                    '<p class="monitoring-muted">' + esc(totalConns) + ' conns · ' + esc((project.ungranted_locks || []).length) +
+                    ' locks · active crons ' + esc(project.active_crons || 0) + ' · DB ' + esc(project.database_size || "-") + '</p></div>' +
+                '</div>';
+            html += '<div class="table-responsive"><table class="table table-condensed monitoring-live-table db-maintenance-table">';
+            html += '<thead><tr><th>Risk</th><th>Table</th><th>Dead</th><th>Size</th><th>Recommendation</th><th>Actions</th></tr></thead><tbody>';
+            (project.top_tables || []).forEach(function (table) {
+                var rec = table.recommendation || {};
+                var severity = rec.severity || "ok";
+                var deadPct = ((table.dead_ratio || 0) * 100).toFixed(1) + "%";
+                var actions = ["vacuum_analyze", "reindex_concurrently", "vacuum_full", "truncate_empty"].map(function (action) {
+                    var disabled = "";
+                    if (!canManage) disabled = " disabled";
+                    if (action === "truncate_empty" && (table.live || 0) !== 0) disabled = " disabled";
+                    if ((action === "vacuum_full" || action === "truncate_empty") && (project.active_crons || 0) > 0) disabled = " disabled";
+                    var cls = action === "vacuum_full" || action === "truncate_empty" ? " danger" : "";
+                    return '<button class="db-action-btn' + cls + '"' + disabled +
+                        ' data-project="' + attr(project.project) + '"' +
+                        ' data-schema="' + attr(table.schema || "public") + '"' +
+                        ' data-table="' + attr(table.table) + '"' +
+                        ' data-action="' + attr(action) + '">' + esc(actionLabel(action)) + '</button>';
+                }).join("");
+                html += '<tr class="db-risk-' + esc(severity) + '">' +
+                    '<td><span class="db-risk-chip ' + esc(severity) + '">' + esc(severity) + '</span></td>' +
+                    '<td><code>' + esc((table.schema || "public") + "." + table.table) + '</code><br><small>live ' + esc((table.live || 0).toLocaleString()) + '</small></td>' +
+                    '<td>' + esc((table.dead || 0).toLocaleString()) + '<br><small>' + esc(deadPct) + '</small></td>' +
+                    '<td>' + esc(table.size_pretty || "-") + '</td>' +
+                    '<td>' + esc(rec.message || "-") + '<br><small>' + esc((rec.tags || []).join(", ")) + '</small></td>' +
+                    '<td><div class="db-action-row">' + actions + '</div></td>' +
+                '</tr>';
+            });
+            html += '</tbody></table></div></div>';
+        });
+
+        html += '<div class="db-jobs"><h3>Maintenance Jobs</h3>';
+        if (active.length) {
+            html += '<p class="monitoring-muted">Active: ' + esc(active.map(function (job) {
+                return job.project_label + " " + job.action + " " + job.schema_name + "." + job.table_name;
+            }).join(" · ")) + '</p>';
+        }
+        if (!jobs.length) {
+            html += '<div class="monitoring-muted">No maintenance jobs queued yet.</div>';
+        } else {
+            html += '<table class="table table-condensed monitoring-live-table"><thead><tr><th>Status</th><th>Project</th><th>Action</th><th>Table</th><th>Requested</th><th>Result</th></tr></thead><tbody>';
+            jobs.slice(0, 12).forEach(function (job) {
+                html += '<tr class="db-job-' + esc(job.status) + '">' +
+                    '<td><span class="db-risk-chip ' + esc(job.status) + '">' + esc(job.status) + '</span></td>' +
+                    '<td>' + esc(job.project_label) + '</td>' +
+                    '<td>' + esc(job.action) + '</td>' +
+                    '<td><code>' + esc(job.schema_name + "." + job.table_name) + '</code></td>' +
+                    '<td>' + esc(formatIST(job.requested_at)) + '<br><small>' + esc(job.requested_by || "-") + '</small></td>' +
+                    '<td>' + esc(job.error || job.output || "-") + '</td>' +
+                '</tr>';
+            });
+            html += '</tbody></table>';
+        }
+        html += '</div>';
+        container.innerHTML = html;
+
+        Array.prototype.forEach.call(container.querySelectorAll(".db-action-btn"), function (button) {
+            button.addEventListener("click", function () {
+                var project = button.dataset.project;
+                var schemaName = button.dataset.schema;
+                var tableName = button.dataset.table;
+                var action = button.dataset.action;
+                var expected = confirmationFor(project, schemaName, tableName, action);
+                var typed = window.prompt("Type exactly to queue " + actionLabel(action) + ":\n" + expected);
+                if (typed == null) return;
+                queueDbMaintenance(project, schemaName, tableName, action, typed);
+            });
+        });
+    }
+
+    function queueDbMaintenance(project, schemaName, tableName, action, confirmation) {
+        fetch(root.dataset.dbMaintenanceActionUrl, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCookie("csrftoken")
+            },
+            body: JSON.stringify({
+                project: project,
+                schema: schemaName,
+                table: tableName,
+                action: action,
+                confirmation: confirmation
+            })
+        }).then(function (response) {
+            return response.json().then(function (data) {
+                if (!response.ok || !data.ok) throw new Error(data.error || "Failed to queue maintenance job");
+                return data;
+            });
+        }).then(function () {
+            loadDbMaintenance();
+        }).catch(function (err) {
+            window.alert(err.message);
+        });
+    }
+
+    function loadDbMaintenance() {
+        if (!root.dataset.dbMaintenanceUrl) return Promise.resolve();
+        return fetch(root.dataset.dbMaintenanceUrl, {credentials: "same-origin"})
+            .then(function (response) { return response.json(); })
+            .then(renderDbMaintenance)
+            .catch(function (err) {
+                var container = $("monitoring-db-maintenance");
+                if (container) container.innerHTML = '<div class="monitoring-muted">DB maintenance data failed to load: ' + esc(err.message) + '</div>';
+            });
+    }
+
     function renderHttpStats(data) {
         var hosts = data.http_stats || [];
         var counter = $("monitoring-http-count");
@@ -815,6 +971,7 @@
         loadOverview();
         loadInfrastructure();
         loadLive();
+        loadDbMaintenance();
         if (selectedCode) {
             loadCheckSeries(selectedCode);
             loadRuns(selectedCode);
@@ -841,6 +998,7 @@
     refresh();
     setInterval(loadLive, 1000);
     setInterval(loadInfrastructure, 5000);
+    setInterval(loadDbMaintenance, 30000);
     setInterval(refresh, 30000);
     setInterval(function () {
         if (selectedCode) {

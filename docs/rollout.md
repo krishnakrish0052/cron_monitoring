@@ -18,6 +18,8 @@
 - Added HTTP/API classification for BscScan/BaseScan/Etherscan response-shape errors, including deprecated V1 endpoint responses and Etherscan paid-tier/full-chain-coverage errors.
 - Converted dashboard-facing times, graph labels, run history, and live panels to IST.
 - Added an operator Action Center, sticky quick navigation, and cron table search/status filters so the dashboard is easier to use during incidents.
+- Added Postgres maintenance recommendations and guarded manual action buttons for HODL and AK1111.
+- Added PM2-managed `db-maintenance-worker` with SQLite job history under `/home/ubuntu/monitoring/runtime/db-maintenance`.
 - Added sanitized Git versioning for `https://github.com/krishnakrish0052/cron_monitoring.git`.
 - Kept Healthchecks ping/event logs as the canonical ping history.
 - Kept Prometheus internal only and did not add Grafana.
@@ -74,6 +76,21 @@ Expected results:
 - While a monitored cron runs, a heartbeat file appears in `/home/ubuntu/monitoring/runtime/observer/heartbeats`.
 - Dashboard-visible timestamps show IST.
 - Daily checks that have never run show `waiting first run` and a future next-run time, not `down`.
+- `db-maintenance-worker` is online in PM2.
+- `/monitoring/api/db-maintenance/` returns HODL and AK1111 project entries.
+- Staff users can queue a guarded `VACUUM ANALYZE`; anonymous and non-staff users cannot queue actions.
+
+Postgres maintenance guardrail checks:
+
+```bash
+PYTHONPATH=/home/ubuntu/monitoring/django /home/ubuntu/monitoring/healthchecks/venv/bin/python -m py_compile /home/ubuntu/monitoring/django/db_maintenance/*.py
+PYTHONPATH=/home/ubuntu/monitoring/django /home/ubuntu/monitoring/healthchecks/venv/bin/python - <<'PY'
+from db_maintenance.core import all_health
+print([(p.get("project"), len(p.get("top_tables", []))) for p in all_health()["projects"]])
+PY
+```
+
+The first production maintenance action should be `VACUUM ANALYZE` on a small table. Avoid `VACUUM FULL` and `TRUNCATE EMPTY` until a quiet window and explicit table-level confirmation.
 
 ## Known App-Side Issue Surfaced By Monitoring
 

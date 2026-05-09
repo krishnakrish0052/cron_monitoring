@@ -123,6 +123,22 @@ module.exports = {
       restart_delay: 4000,
       max_restarts: 10,
       min_uptime: '10s'
+    },
+    {
+      name: 'db-maintenance-worker',
+      script: '/home/ubuntu/monitoring/bin/start-db-maintenance-worker.sh',
+      interpreter: 'bash',
+      cwd: '/home/ubuntu/monitoring',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '256M',
+      env: {
+        PYTHONPATH: '/home/ubuntu/monitoring/django',
+        DB_MAINTENANCE_RUNTIME: '/home/ubuntu/monitoring/runtime/db-maintenance'
+      },
+      restart_delay: 4000,
+      max_restarts: 10,
+      min_uptime: '10s'
     }
   ]
 };

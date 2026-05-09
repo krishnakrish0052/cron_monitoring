@@ -9,6 +9,12 @@ urlpatterns = [
     path("", views.monitoring_dashboard, name="hc-monitoring"),
     path("api/overview/", views.monitoring_overview, name="hc-monitoring-overview"),
     path("api/live/", views.monitoring_live, name="hc-monitoring-live"),
+    path("api/db-maintenance/", views.monitoring_db_maintenance, name="hc-monitoring-db-maintenance"),
+    path(
+        "api/db-maintenance/actions/",
+        views.monitoring_db_maintenance_action,
+        name="hc-monitoring-db-maintenance-action",
+    ),
     path(
         "api/checks/<uuid:code>/series/",
         views.monitoring_check_series,

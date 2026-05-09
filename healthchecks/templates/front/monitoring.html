@@ -9,6 +9,8 @@
          data-overview-url="{% url 'hc-monitoring-overview' %}"
          data-infra-url="{% url 'hc-monitoring-infrastructure' %}"
          data-live-url="{% url 'hc-monitoring-live' %}"
+         data-db-maintenance-url="{% url 'hc-monitoring-db-maintenance' %}"
+         data-db-maintenance-action-url="{% url 'hc-monitoring-db-maintenance-action' %}"
          data-series-template="/monitoring/api/checks/__CODE__/series/"
          data-live-template="/monitoring/api/checks/__CODE__/live/"
          data-runs-template="/monitoring/api/checks/__CODE__/runs/"
@@ -115,6 +117,9 @@
             </div>
             <div id="monitoring-pg-body" class="monitoring-pg-body">
                 <div class="monitoring-muted">Postgres data not loaded yet.</div>
+            </div>
+            <div id="monitoring-db-maintenance" class="monitoring-db-maintenance">
+                <div class="monitoring-muted">Maintenance recommendations not loaded yet.</div>
             </div>
         </div>
 

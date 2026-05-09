@@ -9,11 +9,13 @@ This directory owns the monitoring runtime for AK1111 and HODL. The main app rep
 - HODL wrapper: `/home/ubuntu/monitoring/django/hodl`
 - Shared wrapper utilities: `/home/ubuntu/monitoring/django/monitoring_common`
 - Live observer service: `/home/ubuntu/monitoring/django/monitoring_observer`
+- DB maintenance service: `/home/ubuntu/monitoring/django/db_maintenance`
 - Healthchecks dashboard extension: `/home/ubuntu/monitoring/django/healthchecks_custom`
 - Prometheus config and data: `/home/ubuntu/monitoring/prometheus`
 - Cron execution logs: `/home/ubuntu/monitoring/logs/crons`
 - Live observer runtime state: `/home/ubuntu/monitoring/runtime/observer`
 - PM2 source of truth: `/home/ubuntu/monitoring/ecosystem.config.js`
+- DB maintenance queue: `/home/ubuntu/monitoring/runtime/db-maintenance/jobs.sqlite3`
 
 ## Services
 
@@ -28,6 +30,8 @@ Prometheus is internal only on `127.0.0.1:9090` and scrapes:
 All monitoring-related services are managed by PM2 from `/home/ubuntu/monitoring/ecosystem.config.js`.
 
 `cron-observer` is a PM2-managed Python service that aggregates live cron heartbeat files every second. It does not touch the AK1111 or HODL app repositories.
+
+`db-maintenance-worker` is a PM2-managed Python service that runs operator-approved Postgres maintenance jobs from the dashboard queue. It uses runtime DB credentials from the app `.env` files and stores job history under `runtime/`, which is excluded from Git.
 
 ## Dashboard
 
@@ -50,8 +54,11 @@ The `/monitoring/` dashboard shows:
 - Live Cron Observer shows running crons, elapsed time, current stage, PID, CPU/RAM, DB query counts, HTTP counts, slow queries, stale heartbeats, and IST timestamps.
 - Recently Finished shows completed runs with trace summaries.
 - External API Errors surfaces BscScan/BaseScan/Etherscan response-shape failures detected by the wrapper.
+- Postgres Maintenance shows HODL and AK1111 dead-row risk, table cleanup recommendations, action buttons, and audited job history.
 - `/monitoring/api/live/` returns the live observer state for the dashboard.
 - `/monitoring/api/checks/<uuid>/live/` returns live observer state for one cron.
+- `/monitoring/api/db-maintenance/` returns DB maintenance health, recommendations, active jobs, and recent jobs.
+- `/monitoring/api/db-maintenance/actions/` queues guarded manual DB maintenance jobs for staff/superusers.
 - All user-facing dashboard times are shown in IST. Raw JSON still includes UTC fields for debugging.
 
 `waiting first run` means Healthchecks has not received any ping for that check yet. This is normal for daily jobs until their first scheduled execution after the check was created.
@@ -102,6 +109,32 @@ AK1111 was found to have the same Base explorer response-shape bug in:
 The server checkout has been patched to route those two cron fetchers through `/home/ubuntu/ak1111-backend/config/explorer.py`, which calls Etherscan V2 shape with `chainid=8453`, prefers `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validates `result` before iterating, classifies explorer failures, and avoids advancing block checkpoints after malformed explorer responses. The post-patch AK1111 explorer crons completed successfully at 17:05 IST on 2026-05-09. If Etherscan V2 reports that Base chain API access is not available on the current plan, future runs will classify that as `etherscan_paid_tier_required` instead of crashing with `TypeError`. This AK1111 checkout is not a Git repository on the server, so the same change must be copied into the AK1111 source-control repository used by deployment/Buddy before any future deploy overwrites it.
 
 Important HODL deployment note: add `ETHERSCAN_API_KEY` to the HODL environment for Etherscan V2 reliability. The code falls back to the existing `BSCSCAN_API_KEY`/`BASESCAN_API_KEY`, but the unified V2 endpoint should use an Etherscan V2 key.
+
+## Postgres Maintenance
+
+The dashboard classifies table bloat and dead-row pressure for both HODL and AK1111. Dead rows are old PostgreSQL MVCC row versions left after updates/deletes until VACUUM can clean them.
+
+Recommendation thresholds:
+
+- `critical`: `dead_ratio >= 40%` or `dead_rows >= 500000`.
+- `warning`: `dead_ratio >= 20%` or `dead_rows >= 100000`.
+- `empty_bloated`: `live_rows == 0` and table size is at least `100MB`.
+- `large_table`: table size is at least `1GB`.
+
+Supported manual actions:
+
+- `VACUUM ANALYZE`: safe first step; cleans reusable dead tuples where possible and updates planner stats.
+- `REINDEX CONCURRENTLY`: online index rebuild where PostgreSQL supports it.
+- `VACUUM FULL`: blocking table rewrite; refused while crons, locks, or long transactions are active.
+- `TRUNCATE EMPTY`: allowed only when `live_rows == 0`; requires exact confirmation text.
+
+Runtime safety:
+
+- Only Healthchecks staff/superusers can queue jobs.
+- One active maintenance job per project database is allowed.
+- The server verifies table existence in `pg_stat_user_tables`; browser input is never executed as raw SQL.
+- Blocking actions are refused when project crons are active, ungranted locks exist, or transactions are older than 5 minutes.
+- Job history is stored in `/home/ubuntu/monitoring/runtime/db-maintenance/jobs.sqlite3`.
 
 ## GitHub Versioning
 

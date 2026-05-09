@@ -28,6 +28,8 @@
 - Patched the local AK1111 server checkout for the same explorer response-shape crash in `lplock.utils.fetch_data.fetchInvestmentsFromBlockchain` and `dex.utils.fetch_investments.fetchTokenInvestments`.
 - Added AK1111 `config.explorer.fetch_normal_transactions()` to use Etherscan V2 request shape for Base (`chainid=8453`), prefer `ETHERSCAN_API_KEY` with `BASESCAN_API_KEY` fallback, validate `result` before iterating transactions, classify explorer failures, and avoid advancing block checkpoints after malformed explorer responses.
 - Verified the AK1111 explorer cron runs no longer raise `TypeError`; `Fetch LP Investments` and `Fetch DEX Token Investments` completed successfully at 17:05 IST on 2026-05-09.
+- Added monitoring-owned Postgres maintenance APIs, dashboard recommendations, action buttons, and the `db-maintenance-worker` PM2 service for HODL and AK1111.
+- Verified the DB maintenance queue/worker path with a low-impact `VACUUM ANALYZE` on AK1111 `public.accounts_applogs`.
 
 ## Design Decisions
 
@@ -54,6 +56,8 @@
 - Maximum Python tracing is bounded by `MONITORING_CRON_MAX_TRACE_EVENTS` and can be disabled with `MONITORING_CRON_TRACE=0`.
 - External explorer API errors like deprecated V1 endpoint responses should be fixed in the app repositories in a separate Buddy-safe change.
 - The AK1111 checkout at `/home/ubuntu/ak1111-backend` is not a Git repository on this server. The local explorer fix must be copied into the AK1111 source-control repository used by Buddy/deployment, or a future deploy may overwrite it.
+- DB maintenance job history is intentionally runtime-only at `/home/ubuntu/monitoring/runtime/db-maintenance/jobs.sqlite3`.
+- Blocking DB maintenance actions are intentionally refused while project crons are active, ungranted locks exist, or long transactions exceed 5 minutes.
 - On 2026-05-09, HODL app-side cron reliability work started on branch `cron-reliability-monitoring` in `/home/ubuntu/hodlbackend2/HODL-2025`.
 - HODL now has an app-owned `cronops` Django app with DB-backed cron jobs, runs, events, checkpoints, and per-cron locks.
 - HODL duplicate cron runs are skipped per cron key, while different cron jobs can still run in parallel.

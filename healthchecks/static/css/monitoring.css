@@ -234,6 +234,114 @@ body.page-monitoring .footer {
     color: var(--text);
 }
 
+.monitoring-db-maintenance {
+    border-top: 1px solid rgba(142, 163, 181, .14);
+    margin-top: 16px;
+    padding-top: 16px;
+}
+
+.db-maintenance-note {
+    background: rgba(0, 245, 212, .07);
+    border: 1px solid rgba(0, 245, 212, .22);
+    border-radius: 14px;
+    color: var(--muted);
+    margin-bottom: 14px;
+    padding: 10px 12px;
+}
+
+.db-maintenance-note strong,
+.db-project-block h3,
+.db-jobs h3 {
+    color: var(--text);
+}
+
+.db-project-block {
+    border: 1px solid rgba(142, 163, 181, .14);
+    border-radius: 16px;
+    margin-bottom: 14px;
+    padding: 12px;
+}
+
+.db-maintenance-table td {
+    min-width: 100px;
+}
+
+.db-risk-chip {
+    border-radius: 999px;
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .06em;
+    padding: 4px 8px;
+    text-transform: uppercase;
+}
+
+.db-risk-chip.ok,
+.db-risk-chip.success {
+    background: rgba(77, 255, 136, .12);
+    color: var(--green);
+}
+
+.db-risk-chip.warning,
+.db-risk-chip.queued,
+.db-risk-chip.running {
+    background: rgba(255, 176, 0, .12);
+    color: var(--gold);
+}
+
+.db-risk-chip.critical,
+.db-risk-chip.failure {
+    background: rgba(255, 77, 109, .12);
+    color: var(--red);
+}
+
+.db-risk-chip.blocking-risk {
+    background: rgba(247, 37, 133, .14);
+    color: #ff9bc8;
+}
+
+.db-risk-warning,
+.db-risk-critical,
+.db-risk-blocking-risk {
+    background: rgba(255, 176, 0, .035);
+}
+
+.db-risk-critical,
+.db-risk-blocking-risk {
+    background: rgba(255, 77, 109, .05);
+}
+
+.db-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 280px;
+}
+
+.db-action-btn {
+    background: rgba(0, 245, 212, .09);
+    border: 1px solid rgba(0, 245, 212, .26);
+    border-radius: 999px;
+    color: var(--text);
+    font-size: 11px;
+    font-weight: 800;
+    padding: 6px 9px;
+}
+
+.db-action-btn.danger {
+    background: rgba(255, 77, 109, .08);
+    border-color: rgba(255, 77, 109, .28);
+}
+
+.db-action-btn:disabled {
+    cursor: not-allowed;
+    opacity: .35;
+}
+
+.db-jobs {
+    margin-top: 16px;
+}
+
 .monitoring-card,
 .monitoring-panel,
 .monitoring-metric-card,

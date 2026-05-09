@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from cronsim import CronSim
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_GET, require_POST
 from django.http import (
     HttpRequest,
     HttpResponse,
@@ -29,6 +30,7 @@ from hc.front.views import _get_check_for_user
 from healthchecks_custom.metrics import render_monitoring_metrics
 from monitoring_common.cron_logs import iter_runs_for_uuid, read_run_events, read_run_log
 from monitoring_observer.collector import read_state
+from db_maintenance.core import all_health, queue_action
 
 
 MONITORING_PROJECTS = (
@@ -514,6 +516,41 @@ def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse
 @login_required
 def monitoring_live(request: AuthenticatedHttpRequest) -> HttpResponse:
     return JsonResponse(_merge_hodl_cronops_state(read_state()))
+
+
+@login_required
+@require_GET
+def monitoring_db_maintenance(request: AuthenticatedHttpRequest) -> HttpResponse:
+    payload = all_health()
+    payload["can_manage"] = _can_run_db_maintenance(request)
+    return JsonResponse(payload)
+
+
+def _can_run_db_maintenance(request: AuthenticatedHttpRequest) -> bool:
+    user = request.user
+    return bool(user.is_authenticated and (getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)))
+
+
+@login_required
+@require_POST
+def monitoring_db_maintenance_action(request: AuthenticatedHttpRequest) -> HttpResponse:
+    if not _can_run_db_maintenance(request):
+        return JsonResponse({"ok": False, "error": "staff_or_superuser_required"}, status=403)
+    try:
+        payload = json.loads(request.body.decode() or "{}")
+        job = queue_action(
+            project=str(payload.get("project", "")),
+            schema_name=str(payload.get("schema", "")),
+            table_name=str(payload.get("table", "")),
+            action=str(payload.get("action", "")),
+            confirmation=str(payload.get("confirmation", "")),
+            actor=getattr(request.user, "email", "") or getattr(request.user, "username", "") or str(request.user),
+        )
+    except ValueError as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+    except Exception as exc:
+        return JsonResponse({"ok": False, "error": str(exc)}, status=500)
+    return JsonResponse({"ok": True, "job": job}, status=201)
 
 
 @login_required
