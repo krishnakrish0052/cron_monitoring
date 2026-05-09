@@ -113,7 +113,9 @@ def _hodl_run_to_live(run: dict) -> dict:
 
 
 def _merge_hodl_cronops_state(state: dict) -> dict:
-    hodl = _fetch_json(HODL_CRONOPS_URL, timeout=1.5)
+    # Live endpoint walks /proc and runs several DB queries on a busy host;
+    # 6s timeout is realistic, dashboard refresh is debounced anyway.
+    hodl = _fetch_json(HODL_CRONOPS_URL, timeout=6.0)
     if "running" not in hodl and "recent" not in hodl:
         state["hodl_cronops"] = {"status": "unreachable", "error": hodl.get("error")}
         return state
@@ -122,11 +124,18 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
     recent = [_hodl_run_to_live(run) for run in hodl.get("recent", [])]
     orphans = hodl.get("orphans", [])
 
-    # Fan out to the four detail endpoints. Each is best-effort with a tight
-    # timeout — if one stalls, the rest of the dashboard still renders.
-    slow_q = _fetch_json(f"{HODL_CRONOPS_BASE}/slow-queries/", timeout=1.5)
-    http_s = _fetch_json(f"{HODL_CRONOPS_BASE}/http-stats/", timeout=1.5)
-    pg = _fetch_json(f"{HODL_CRONOPS_BASE}/postgres/", timeout=1.5)
+    # Fan out to the three detail endpoints in parallel — the Django dev
+    # runserver on the HODL side is single-threaded and each call costs
+    # ~3-4s, so doing them serially would push the dashboard to 12+s.
+    # ThreadPoolExecutor lets total wait be max() of the three, ~5s.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        f_slow = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/slow-queries/", 7.0)
+        f_http = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/http-stats/", 7.0)
+        f_pg = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/postgres/", 7.0)
+        slow_q = f_slow.result()
+        http_s = f_http.result()
+        pg = f_pg.result()
     state["slow_queries"] = slow_q.get("slow_queries", []) if isinstance(slow_q, dict) else []
     state["http_stats"] = http_s.get("hosts", []) if isinstance(http_s, dict) else []
     state["postgres"] = pg if isinstance(pg, dict) and "connections_by_state" in pg else {}
