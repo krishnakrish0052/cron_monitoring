@@ -35,4 +35,9 @@ urlpatterns = [
         name="hc-monitoring-infrastructure",
     ),
     path("metrics/", views.monitoring_metrics, name="hc-monitoring-metrics"),
+    path(
+        "api/cron-history/<path:job_key>/",
+        views.monitoring_cron_history,
+        name="hc-monitoring-cron-history",
+    ),
 ]

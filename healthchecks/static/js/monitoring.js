@@ -352,7 +352,9 @@
             var http = item.http || {};
             var trace = item.latest_trace || {};
             var staleClass = item.stuck ? " live-stuck" : "";
-            return '<tr class="' + staleClass + '">' +
+            var jobKey = (item.job_key || item.function || "").replace(/'/g, "");
+            var clickAttr = jobKey ? ' onclick="loadCronHistory(\'' + jobKey + '\')" style="cursor:pointer"' : '';
+            return '<tr class="' + staleClass + '"' + clickAttr + '>' +
                 '<td><strong>' + esc(item.project) + '</strong><br><small>' + esc(liveCronName(item)) + '</small></td>' +
                 '<td>' + esc(formatSeconds(item.elapsed_seconds)) + '<br><small>PID ' + esc(item.pid) + '</small></td>' +
                 '<td>' + esc(formatNumber(process.cpu_percent, 1)) + '%</td>' +
@@ -463,8 +465,161 @@
                 renderExternalErrors(data);
                 renderLiveAlerts(data);
                 renderOrphans(data);
+                renderPostgres(data);
+                renderHttpStats(data);
+                renderSlowSQL(data);
             });
     }
+
+    function renderPostgres(data) {
+        var pg = data.postgres || {};
+        var summary = $("monitoring-pg-summary");
+        var body = $("monitoring-pg-body");
+        if (!body) return;
+        var states = pg.connections_by_state || [];
+        var totalConns = states.reduce(function (a, s) { return a + (s.count || 0); }, 0);
+        var locks = pg.ungranted_locks || [];
+        if (summary) {
+            summary.textContent = totalConns + " conns · " + locks.length + " ungranted locks · "
+                + (pg.cache_hit_ratio != null ? (pg.cache_hit_ratio * 100).toFixed(2) + "% cache hit" : "?")
+                + " · DB " + (pg.database_size || "-");
+        }
+        if (!states.length && !(pg.top_tables || []).length) {
+            body.innerHTML = '<div class="monitoring-muted">Postgres data unavailable.</div>';
+            return;
+        }
+        var html = '';
+        html += '<div style="display:flex;gap:24px;flex-wrap:wrap">';
+        // Connections by state
+        html += '<div><strong>Connections</strong><ul>';
+        states.forEach(function (s) {
+            html += '<li>' + esc(s.state) + ': <strong>' + esc(s.count) + '</strong></li>';
+        });
+        html += '</ul></div>';
+        // Ungranted locks
+        html += '<div><strong>Ungranted Locks</strong>';
+        if (!locks.length) {
+            html += '<div class="monitoring-muted">none</div>';
+        } else {
+            html += '<ul>';
+            locks.slice(0, 10).forEach(function (l) {
+                html += '<li>pid ' + esc(l.pid) + ' ' + esc(l.mode) + ' on ' + esc(l.relation || '?') + '</li>';
+            });
+            html += '</ul>';
+        }
+        html += '</div>';
+        html += '</div>';
+        // Top tables
+        var tables = pg.top_tables || [];
+        if (tables.length) {
+            html += '<table class="table table-condensed monitoring-live-table" style="margin-top:12px">';
+            html += '<thead><tr><th>Table</th><th>Live rows</th><th>Dead rows</th><th>Dead %</th><th>Size</th></tr></thead><tbody>';
+            tables.forEach(function (t) {
+                var deadPct = (t.dead_ratio * 100).toFixed(1);
+                var rowClass = t.dead_ratio > 0.3 ? 'orphan-row orphan-untracked' : '';
+                html += '<tr class="' + rowClass + '">' +
+                    '<td><code>' + esc(t.table) + '</code></td>' +
+                    '<td>' + esc((t.live || 0).toLocaleString()) + '</td>' +
+                    '<td>' + esc((t.dead || 0).toLocaleString()) + '</td>' +
+                    '<td>' + deadPct + '%</td>' +
+                    '<td>' + esc(t.size_pretty) + '</td>' +
+                '</tr>';
+            });
+            html += '</tbody></table>';
+        }
+        body.innerHTML = html;
+    }
+
+    function renderHttpStats(data) {
+        var hosts = data.http_stats || [];
+        var counter = $("monitoring-http-count");
+        var tbody = $("monitoring-http-tbody");
+        if (counter) counter.textContent = hosts.length + (hosts.length === 1 ? " host" : " hosts");
+        if (!tbody) return;
+        if (!hosts.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="monitoring-muted">No HTTP calls captured yet.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = hosts.map(function (h) {
+            var fmt = function (v) { return (v || 0).toFixed(0) + "ms"; };
+            var errCls = h.errors > 0 ? "orphan-row orphan-untracked" : "";
+            return '<tr class="' + errCls + '">' +
+                '<td><code>' + esc(h.host) + '</code></td>' +
+                '<td>' + esc(h.count) + '</td>' +
+                '<td>' + esc(h.errors) + (h.errors > 0 ? ' (' + ((h.error_rate||0)*100).toFixed(1) + '%)' : '') + '</td>' +
+                '<td>' + esc(fmt(h.p50_ms)) + '</td>' +
+                '<td>' + esc(fmt(h.p95_ms)) + '</td>' +
+                '<td>' + esc(fmt(h.p99_ms)) + '</td>' +
+                '<td>' + esc(fmt(h.avg_ms)) + '</td>' +
+            '</tr>';
+        }).join('');
+    }
+
+    function renderSlowSQL(data) {
+        var rows = data.slow_queries || [];
+        var counter = $("monitoring-slow-sql-count");
+        var tbody = $("monitoring-slow-sql-tbody");
+        if (counter) counter.textContent = rows.length + " in 24h";
+        if (!tbody) return;
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="monitoring-muted">No slow queries in last 24 h.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = rows.slice(0, 50).map(function (r) {
+            var sqlShort = (r.sql || "").slice(0, 240);
+            var time = r.created_at ? new Date(r.created_at).toLocaleString() : "-";
+            var dur = r.duration_ms != null ? Math.round(r.duration_ms) + "ms" : "-";
+            var planTitle = r.plan ? "EXPLAIN plan available — see CronEvent " : "";
+            return '<tr title="' + esc(planTitle) + '">' +
+                '<td>' + esc(time) + '</td>' +
+                '<td><small>' + esc(r.job_key || "-") + '</small></td>' +
+                '<td>' + esc(dur) + '</td>' +
+                '<td><code style="white-space:pre-wrap;word-break:break-all">' + esc(sqlShort) + '</code></td>' +
+            '</tr>';
+        }).join('');
+    }
+
+    function loadCronHistory(jobKey) {
+        var panel = $("monitoring-cron-history-panel");
+        var titleEl = $("monitoring-history-job");
+        var body = $("monitoring-history-body");
+        if (!panel || !body) return;
+        panel.style.display = "";
+        if (titleEl) titleEl.textContent = jobKey;
+        body.innerHTML = '<div class="monitoring-muted">Loading...</div>';
+        var url = "/monitoring/api/cron-history/" + encodeURIComponent(jobKey) + "/";
+        fetch(url, {credentials: "same-origin"})
+            .then(function (response) { return response.json(); })
+            .then(function (data) {
+                var days = data.days || [];
+                if (!days.length) {
+                    body.innerHTML = '<div class="monitoring-muted">No history yet (cron has never finished a run in the last 30 days).</div>';
+                    return;
+                }
+                var html = '<table class="table table-condensed monitoring-live-table"><thead><tr>';
+                html += '<th>Date</th><th>Runs</th><th>OK</th><th>Fail</th><th>Skip</th><th>p50</th><th>p95</th><th>Avg DB queries</th>';
+                html += '</tr></thead><tbody>';
+                days.forEach(function (d) {
+                    var failCls = (d.failure || 0) > 0 ? "orphan-row orphan-untracked" : "";
+                    html += '<tr class="' + failCls + '">' +
+                        '<td>' + esc(d.date) + '</td>' +
+                        '<td>' + esc(d.total) + '</td>' +
+                        '<td>' + esc(d.success) + '</td>' +
+                        '<td>' + esc(d.failure) + '</td>' +
+                        '<td>' + esc(d.skipped || 0) + '</td>' +
+                        '<td>' + (d.p50_seconds != null ? esc(d.p50_seconds.toFixed(1) + "s") : "-") + '</td>' +
+                        '<td>' + (d.p95_seconds != null ? esc(d.p95_seconds.toFixed(1) + "s") : "-") + '</td>' +
+                        '<td>' + (d.avg_db_queries != null ? esc(d.avg_db_queries.toFixed(0)) : "-") + '</td>' +
+                    '</tr>';
+                });
+                html += '</tbody></table>';
+                body.innerHTML = html;
+            })
+            .catch(function (err) {
+                body.innerHTML = '<div class="monitoring-muted">Failed to load: ' + esc(err.message) + '</div>';
+            });
+    }
+    window.loadCronHistory = loadCronHistory;
 
     function loadCheckSeries(code) {
         var url = root.dataset.seriesTemplate.replace("__CODE__", code);

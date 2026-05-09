@@ -85,6 +85,83 @@
             </div>
         </div>
 
+        <div class="monitoring-panel monitoring-pg-panel">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>Postgres Health</h2>
+                    <p class="monitoring-muted">Connections, top tables, ungranted locks, cache hit ratio. Read-only system catalog snapshot.</p>
+                </div>
+                <span id="monitoring-pg-summary" class="monitoring-muted">Loading...</span>
+            </div>
+            <div id="monitoring-pg-body" class="monitoring-pg-body">
+                <div class="monitoring-muted">Postgres data not loaded yet.</div>
+            </div>
+        </div>
+
+        <div class="monitoring-panel monitoring-http-panel">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>External API Latency (24h)</h2>
+                    <p class="monitoring-muted">Per-host outbound HTTP timings from cron runs (Etherscan, BSC RPC, etc.).</p>
+                </div>
+                <span id="monitoring-http-count" class="monitoring-muted">0 hosts</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-condensed monitoring-live-table">
+                    <thead>
+                        <tr>
+                            <th>Host</th>
+                            <th>Calls</th>
+                            <th>Errors</th>
+                            <th>p50</th>
+                            <th>p95</th>
+                            <th>p99</th>
+                            <th>Avg</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monitoring-http-tbody">
+                        <tr><td colspan="7" class="monitoring-muted">No HTTP calls captured yet.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="monitoring-panel monitoring-slow-sql-panel">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>Slow SQL (&gt;1s)</h2>
+                    <p class="monitoring-muted">Queries that exceeded the slow-query threshold during a cron run, with EXPLAIN plan.</p>
+                </div>
+                <span id="monitoring-slow-sql-count" class="monitoring-muted">0</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-condensed monitoring-live-table">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Job</th>
+                            <th>Duration</th>
+                            <th>SQL (truncated)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monitoring-slow-sql-tbody">
+                        <tr><td colspan="4" class="monitoring-muted">No slow queries in last 24 h.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="monitoring-cron-history-panel" class="monitoring-panel monitoring-history-panel" style="display:none">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>Cron 30-day History — <span id="monitoring-history-job"></span></h2>
+                    <p class="monitoring-muted">Daily run count, success/failure, p50/p95 duration. Click another cron in the table to switch.</p>
+                </div>
+                <button class="btn btn-default btn-xs" onclick="document.getElementById('monitoring-cron-history-panel').style.display='none'">Close</button>
+            </div>
+            <div id="monitoring-history-body"></div>
+        </div>
+
         <div class="row">
             <div class="col-lg-8">
                 <div class="monitoring-panel">

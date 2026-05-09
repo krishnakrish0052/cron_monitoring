@@ -46,6 +46,7 @@ MONITORING_PROJECTS = (
 
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
 HODL_CRONOPS_URL = os.environ.get("HODL_CRONOPS_URL", "http://127.0.0.1:8001/api/cronops/live/")
+HODL_CRONOPS_BASE = os.environ.get("HODL_CRONOPS_BASE", "http://127.0.0.1:8001/api/cronops")
 IST = ZoneInfo("Asia/Kolkata")
 
 HODL_CRON_UUIDS = {
@@ -120,6 +121,15 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
     active = [_hodl_run_to_live(run) for run in hodl.get("running", [])]
     recent = [_hodl_run_to_live(run) for run in hodl.get("recent", [])]
     orphans = hodl.get("orphans", [])
+
+    # Fan out to the four detail endpoints. Each is best-effort with a tight
+    # timeout — if one stalls, the rest of the dashboard still renders.
+    slow_q = _fetch_json(f"{HODL_CRONOPS_BASE}/slow-queries/", timeout=1.5)
+    http_s = _fetch_json(f"{HODL_CRONOPS_BASE}/http-stats/", timeout=1.5)
+    pg = _fetch_json(f"{HODL_CRONOPS_BASE}/postgres/", timeout=1.5)
+    state["slow_queries"] = slow_q.get("slow_queries", []) if isinstance(slow_q, dict) else []
+    state["http_stats"] = http_s.get("hosts", []) if isinstance(http_s, dict) else []
+    state["postgres"] = pg if isinstance(pg, dict) and "connections_by_state" in pg else {}
     state.setdefault("active_crons", [])
     state.setdefault("recent_runs", [])
     state["active_crons"] = active + state["active_crons"]
@@ -473,6 +483,15 @@ def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse
 @login_required
 def monitoring_live(request: AuthenticatedHttpRequest) -> HttpResponse:
     return JsonResponse(_merge_hodl_cronops_state(read_state()))
+
+
+@login_required
+def monitoring_cron_history(request: AuthenticatedHttpRequest, job_key: str) -> HttpResponse:
+    """Per-job 30-day daily aggregate, proxied from HODL cronops."""
+    payload = _fetch_json(f"{HODL_CRONOPS_BASE}/history/{job_key}/", timeout=2.0)
+    if "days" not in payload:
+        return JsonResponse({"job_key": job_key, "days": [], "error": payload.get("error")}, status=502)
+    return JsonResponse(payload)
 
 
 @login_required
