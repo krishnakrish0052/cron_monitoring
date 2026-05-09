@@ -30,6 +30,7 @@
 - Verified the AK1111 explorer cron runs no longer raise `TypeError`; `Fetch LP Investments` and `Fetch DEX Token Investments` completed successfully at 17:05 IST on 2026-05-09.
 - Added monitoring-owned Postgres maintenance APIs, dashboard recommendations, action buttons, and the `db-maintenance-worker` PM2 service for HODL and AK1111.
 - Verified the DB maintenance queue/worker path with a low-impact `VACUUM ANALYZE` on AK1111 `public.accounts_applogs`.
+- Converted long dashboard sections into collapsible, scroll-bounded panels to reduce total page length while keeping live data available.
 
 ## Design Decisions
 

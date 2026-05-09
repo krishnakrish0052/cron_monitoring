@@ -80,15 +80,18 @@
             <div id="monitoring-live-alerts" class="monitoring-live-alerts"></div>
         </div>
 
-        <div id="monitoring-orphans-panel" class="monitoring-panel monitoring-orphans-panel monitoring-secondary-panel" style="display:none">
+        <div id="monitoring-orphans-panel" class="monitoring-panel monitoring-orphans-panel monitoring-secondary-panel monitoring-collapsible collapsed" style="display:none">
             <div class="monitoring-project-head">
                 <div>
                     <h2>Orphan / Untracked Cron Processes</h2>
                     <p class="monitoring-muted">Cron processes alive on the box that have no matching CronRun record. Legacy = pre-cronops; untracked = wrapper run that never registered.</p>
                 </div>
-                <span id="monitoring-orphans-count" class="monitoring-muted">0</span>
+                <div class="monitoring-head-actions">
+                    <span id="monitoring-orphans-count" class="monitoring-muted">0</span>
+                    <button class="monitoring-collapse-toggle" type="button">Expand</button>
+                </div>
             </div>
-            <div class="table-responsive">
+            <div class="monitoring-collapse-body table-responsive">
                 <table class="table table-condensed monitoring-live-table">
                     <thead>
                         <tr>
@@ -107,31 +110,39 @@
             </div>
         </div>
 
-        <div class="monitoring-panel monitoring-pg-panel monitoring-secondary-panel">
+        <div class="monitoring-panel monitoring-pg-panel monitoring-secondary-panel monitoring-collapsible collapsed">
             <div class="monitoring-project-head">
                 <div>
                     <h2>Postgres Health</h2>
                     <p class="monitoring-muted">Connections, top tables, ungranted locks, cache hit ratio. Read-only system catalog snapshot.</p>
                 </div>
-                <span id="monitoring-pg-summary" class="monitoring-muted">Loading...</span>
+                <div class="monitoring-head-actions">
+                    <span id="monitoring-pg-summary" class="monitoring-muted">Loading...</span>
+                    <button class="monitoring-collapse-toggle" type="button">Expand</button>
+                </div>
             </div>
-            <div id="monitoring-pg-body" class="monitoring-pg-body">
-                <div class="monitoring-muted">Postgres data not loaded yet.</div>
-            </div>
-            <div id="monitoring-db-maintenance" class="monitoring-db-maintenance">
-                <div class="monitoring-muted">Maintenance recommendations not loaded yet.</div>
+            <div class="monitoring-collapse-body">
+                <div id="monitoring-pg-body" class="monitoring-pg-body">
+                    <div class="monitoring-muted">Postgres data not loaded yet.</div>
+                </div>
+                <div id="monitoring-db-maintenance" class="monitoring-db-maintenance">
+                    <div class="monitoring-muted">Maintenance recommendations not loaded yet.</div>
+                </div>
             </div>
         </div>
 
-        <div class="monitoring-panel monitoring-http-panel monitoring-secondary-panel">
+        <div class="monitoring-panel monitoring-http-panel monitoring-secondary-panel monitoring-collapsible collapsed">
             <div class="monitoring-project-head">
                 <div>
                     <h2>External API Latency (24h)</h2>
                     <p class="monitoring-muted">Per-host outbound HTTP timings from cron runs (Etherscan, BSC RPC, etc.).</p>
                 </div>
-                <span id="monitoring-http-count" class="monitoring-muted">0 hosts</span>
+                <div class="monitoring-head-actions">
+                    <span id="monitoring-http-count" class="monitoring-muted">0 hosts</span>
+                    <button class="monitoring-collapse-toggle" type="button">Expand</button>
+                </div>
             </div>
-            <div class="table-responsive">
+            <div class="monitoring-collapse-body table-responsive">
                 <table class="table table-condensed monitoring-live-table">
                     <thead>
                         <tr>
@@ -151,15 +162,18 @@
             </div>
         </div>
 
-        <div class="monitoring-panel monitoring-slow-sql-panel monitoring-secondary-panel">
+        <div class="monitoring-panel monitoring-slow-sql-panel monitoring-secondary-panel monitoring-collapsible collapsed">
             <div class="monitoring-project-head">
                 <div>
                     <h2>Slow SQL (&gt;1s)</h2>
                     <p class="monitoring-muted">Queries that exceeded the slow-query threshold during a cron run, with EXPLAIN plan.</p>
                 </div>
-                <span id="monitoring-slow-sql-count" class="monitoring-muted">0</span>
+                <div class="monitoring-head-actions">
+                    <span id="monitoring-slow-sql-count" class="monitoring-muted">0</span>
+                    <button class="monitoring-collapse-toggle" type="button">Expand</button>
+                </div>
             </div>
-            <div class="table-responsive">
+            <div class="monitoring-collapse-body table-responsive">
                 <table class="table table-condensed monitoring-live-table">
                     <thead>
                         <tr>
@@ -176,41 +190,51 @@
             </div>
         </div>
 
-        <div id="monitoring-cron-history-panel" class="monitoring-panel monitoring-history-panel" style="display:none">
+        <div id="monitoring-cron-history-panel" class="monitoring-panel monitoring-history-panel monitoring-collapsible" style="display:none">
             <div class="monitoring-project-head">
                 <div>
                     <h2>Cron 30-day History — <span id="monitoring-history-job"></span></h2>
                     <p class="monitoring-muted">Daily run count, success/failure, p50/p95 duration. Click another cron in the table to switch.</p>
                 </div>
-                <button class="btn btn-default btn-xs" onclick="document.getElementById('monitoring-cron-history-panel').style.display='none'">Close</button>
+                <div class="monitoring-head-actions">
+                    <button class="monitoring-collapse-toggle" type="button">Collapse</button>
+                    <button class="btn btn-default btn-xs" onclick="document.getElementById('monitoring-cron-history-panel').style.display='none'">Close</button>
+                </div>
             </div>
-            <div id="monitoring-history-body"></div>
+            <div id="monitoring-history-body" class="monitoring-collapse-body monitoring-scroll-body"></div>
         </div>
 
         <div class="row">
             <div class="col-lg-8">
-                <div class="monitoring-panel">
+                <div class="monitoring-panel monitoring-collapsible collapsed">
                     <div class="monitoring-project-head">
                         <h2>Recently Finished</h2>
-                        <span class="monitoring-muted">Latest completed cron runs with trace summaries</span>
+                        <div class="monitoring-head-actions">
+                            <span class="monitoring-muted">Latest completed cron runs with trace summaries</span>
+                            <button class="monitoring-collapse-toggle" type="button">Expand</button>
+                        </div>
                     </div>
-                    <div id="monitoring-recent-runs" class="monitoring-recent-runs"></div>
+                    <div id="monitoring-recent-runs" class="monitoring-recent-runs monitoring-collapse-body monitoring-scroll-body compact-list"></div>
                 </div>
 
-                <div class="monitoring-panel">
+                <div class="monitoring-panel monitoring-collapsible collapsed">
                     <div class="monitoring-project-head">
                         <h2>External API Errors</h2>
-                        <span class="monitoring-muted">BscScan/BaseScan/Etherscan diagnostics from cron HTTP calls</span>
+                        <div class="monitoring-head-actions">
+                            <span class="monitoring-muted">BscScan/BaseScan/Etherscan diagnostics from cron HTTP calls</span>
+                            <button class="monitoring-collapse-toggle" type="button">Expand</button>
+                        </div>
                     </div>
-                    <div id="monitoring-external-errors" class="monitoring-external-errors"></div>
+                    <div id="monitoring-external-errors" class="monitoring-external-errors monitoring-collapse-body monitoring-scroll-body compact-list"></div>
                 </div>
 
-                <div id="monitoring-projects-panel" class="monitoring-panel monitoring-project-filter">
+                <div id="monitoring-projects-panel" class="monitoring-panel monitoring-project-filter monitoring-collapsible">
                     <div class="monitoring-project-head">
                         <div>
                             <h2>Cron Tables</h2>
                             <p class="monitoring-muted">Search or filter before inspecting a cron. This does not change cron execution.</p>
                         </div>
+                        <button class="monitoring-collapse-toggle" type="button">Collapse</button>
                     </div>
                     <div class="monitoring-filter-bar">
                         <input id="monitoring-cron-search" type="search" placeholder="Search cron name, tag, schedule, project..." autocomplete="off">
@@ -219,37 +243,50 @@
                         <button class="monitoring-filter" data-status="up">Up</button>
                         <button class="monitoring-filter" data-status="new">Waiting first run</button>
                     </div>
+                    <div id="monitoring-projects" class="monitoring-collapse-body monitoring-scroll-body cron-tables-scroll"></div>
                 </div>
-                <div id="monitoring-projects"></div>
             </div>
             <div class="col-lg-4">
-                <div id="monitoring-selected-panel" class="monitoring-panel">
-                    <h2>Selected Cron</h2>
-                    <div id="monitoring-selected-empty" class="text-muted">
-                        Select a cron from the project tables.
+                <div id="monitoring-selected-panel" class="monitoring-panel monitoring-collapsible">
+                    <div class="monitoring-project-head">
+                        <h2>Selected Cron</h2>
+                        <button class="monitoring-collapse-toggle" type="button">Collapse</button>
                     </div>
-                    <div id="monitoring-selected" style="display:none">
-                        <div id="monitoring-selected-title" class="monitoring-chart-title"></div>
-                        <svg id="monitoring-duration-chart" class="monitoring-chart" viewBox="0 0 640 180"></svg>
-                        <div id="monitoring-duration-stats" class="monitoring-statline"></div>
-                        <div id="monitoring-run-timeline" class="monitoring-run-timeline"></div>
-                        <div id="monitoring-selected-links" class="monitoring-actions"></div>
-                        <div id="monitoring-trace-events" class="monitoring-trace-events"></div>
+                    <div class="monitoring-collapse-body">
+                        <div id="monitoring-selected-empty" class="text-muted">
+                            Select a cron from the project tables.
+                        </div>
+                        <div id="monitoring-selected" style="display:none">
+                            <div id="monitoring-selected-title" class="monitoring-chart-title"></div>
+                            <svg id="monitoring-duration-chart" class="monitoring-chart" viewBox="0 0 640 180"></svg>
+                            <div id="monitoring-duration-stats" class="monitoring-statline"></div>
+                            <div id="monitoring-run-timeline" class="monitoring-run-timeline"></div>
+                            <div id="monitoring-selected-links" class="monitoring-actions"></div>
+                            <div id="monitoring-trace-events" class="monitoring-trace-events"></div>
+                        </div>
                     </div>
                 </div>
 
-                <div id="monitoring-infra-panel" class="monitoring-panel">
-                    <h2>Infrastructure</h2>
-                    <div id="monitoring-infra-grid" class="monitoring-infra-grid"></div>
+                <div id="monitoring-infra-panel" class="monitoring-panel monitoring-collapsible">
+                    <div class="monitoring-project-head">
+                        <h2>Infrastructure</h2>
+                        <button class="monitoring-collapse-toggle" type="button">Collapse</button>
+                    </div>
+                    <div id="monitoring-infra-grid" class="monitoring-infra-grid monitoring-collapse-body monitoring-scroll-body"></div>
                 </div>
 
-                <div id="monitoring-log-panel" class="monitoring-panel">
+                <div id="monitoring-log-panel" class="monitoring-panel monitoring-collapsible collapsed">
                     <div class="monitoring-project-head">
                         <h2>Execution Log</h2>
-                        <span id="monitoring-log-status" class="monitoring-muted">Select a cron</span>
+                        <div class="monitoring-head-actions">
+                            <span id="monitoring-log-status" class="monitoring-muted">Select a cron</span>
+                            <button class="monitoring-collapse-toggle" type="button">Expand</button>
+                        </div>
                     </div>
-                    <div id="monitoring-log-runs" class="monitoring-log-runs"></div>
-                    <pre id="monitoring-execution-log" class="monitoring-execution-log">No cron selected.</pre>
+                    <div class="monitoring-collapse-body">
+                        <div id="monitoring-log-runs" class="monitoring-log-runs"></div>
+                        <pre id="monitoring-execution-log" class="monitoring-execution-log">No cron selected.</pre>
+                    </div>
                 </div>
             </div>
         </div>

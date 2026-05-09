@@ -218,6 +218,37 @@
         }).join("");
     }
 
+    function expandPanel(panel) {
+        if (!panel) return;
+        panel.classList.remove("collapsed");
+        var button = panel.querySelector(".monitoring-collapse-toggle");
+        if (button) button.textContent = "Collapse";
+    }
+
+    function collapsePanel(panel) {
+        if (!panel) return;
+        panel.classList.add("collapsed");
+        var button = panel.querySelector(".monitoring-collapse-toggle");
+        if (button) button.textContent = "Expand";
+    }
+
+    function setPanelExpanded(panel, expanded) {
+        if (expanded) expandPanel(panel);
+        else collapsePanel(panel);
+    }
+
+    function initCollapsiblePanels() {
+        Array.prototype.forEach.call(document.querySelectorAll(".monitoring-collapsible"), function (panel) {
+            var button = panel.querySelector(".monitoring-collapse-toggle");
+            if (!button || button.dataset.bound === "1") return;
+            button.dataset.bound = "1";
+            button.textContent = panel.classList.contains("collapsed") ? "Expand" : "Collapse";
+            button.addEventListener("click", function () {
+                setPanelExpanded(panel, panel.classList.contains("collapsed"));
+            });
+        });
+    }
+
     function renderActionCenter() {
         var overview = lastOverview || {};
         var live = lastLive || {};
@@ -545,6 +576,7 @@
             return;
         }
         panel.style.display = "";
+        if (orphans.length) expandPanel(panel);
         if (counter) counter.textContent = orphans.length + " orphan" + (orphans.length === 1 ? "" : "s");
         tbody.innerHTML = orphans.map(function (item) {
             var ageH = item.age_seconds != null ? formatSeconds(item.age_seconds) : "-";
@@ -772,6 +804,7 @@
             });
         }).then(function () {
             loadDbMaintenance();
+            expandPanel($("monitoring-db-maintenance") && $("monitoring-db-maintenance").closest(".monitoring-collapsible"));
         }).catch(function (err) {
             window.alert(err.message);
         });
@@ -843,6 +876,7 @@
         var body = $("monitoring-history-body");
         if (!panel || !body) return;
         panel.style.display = "";
+        expandPanel(panel);
         if (titleEl) titleEl.textContent = jobKey;
         body.innerHTML = '<div class="monitoring-muted">Loading...</div>';
         var url = "/monitoring/api/cron-history/" + encodeURIComponent(jobKey) + "/";
@@ -889,6 +923,8 @@
                 var stats = statsFromValues(values);
                 $("monitoring-selected-empty").style.display = "none";
                 $("monitoring-selected").style.display = "";
+                expandPanel($("monitoring-selected-panel"));
+                expandPanel($("monitoring-log-panel"));
                 $("monitoring-selected-title").textContent = data.check.name + " duration";
                 drawChart($("monitoring-duration-chart"), points, {color: "#00f5d4", unit: "s"});
                 $("monitoring-duration-stats").innerHTML =
@@ -979,6 +1015,7 @@
         }
     }
 
+    initCollapsiblePanels();
     $("monitoring-refresh").addEventListener("click", refresh);
     if ($("monitoring-cron-search")) {
         $("monitoring-cron-search").addEventListener("input", function (event) {

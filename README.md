@@ -41,6 +41,7 @@ The `/monitoring/` dashboard shows:
 - AMOLED black UI with the HODL Crons Monitoring logo and GitHub footer link.
 - Operator-first Action Center for down checks, running crons, external API errors, untracked processes, server pressure, and waiting-first-run jobs.
 - Sticky dashboard navigation plus cron table search/filter controls so operators can quickly isolate `down`, `up`, and `waiting first run` checks.
+- Collapsible, scroll-bounded dashboard sections so long tables, logs, DB maintenance, and history panels do not stretch the page endlessly.
 - Selected cron duration charts with latest, average, and max duration.
 - Infrastructure cards for CPU, memory, disk, and NGINX requests using the observer's shared live metric source.
 - CPU cards label `live 1s`, `avg`, and `max 1h` so values do not appear inconsistent.

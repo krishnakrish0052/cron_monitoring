@@ -20,6 +20,7 @@
 - Added an operator Action Center, sticky quick navigation, and cron table search/status filters so the dashboard is easier to use during incidents.
 - Added Postgres maintenance recommendations and guarded manual action buttons for HODL and AK1111.
 - Added PM2-managed `db-maintenance-worker` with SQLite job history under `/home/ubuntu/monitoring/runtime/db-maintenance`.
+- Added collapsible, scroll-bounded dashboard sections to keep long monitoring lists from stretching the full page.
 - Added sanitized Git versioning for `https://github.com/krishnakrish0052/cron_monitoring.git`.
 - Kept Healthchecks ping/event logs as the canonical ping history.
 - Kept Prometheus internal only and did not add Grafana.
