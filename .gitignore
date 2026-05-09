@@ -12,6 +12,7 @@ venv/
 # Runtime state and generated data
 logs/
 runtime/
+backups/
 prometheus/data/
 healthchecks/static-collected/
 healthchecks/search.db
