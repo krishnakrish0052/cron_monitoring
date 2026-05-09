@@ -112,10 +112,41 @@ def _hodl_run_to_live(run: dict) -> dict:
     }
 
 
+_HODL_MERGE_CACHE: dict = {"at": 0.0, "value": None}
+_HODL_MERGE_TTL = 5.0  # seconds, counted from when the bundle finished fetching
+
+
+def _fetch_hodl_bundle() -> dict:
+    """Fetch the HODL cronops state (live + 3 detail endpoints) with a small
+    in-process cache so multiple concurrent dashboard polls don't all hammer
+    the single-threaded HODL dev runserver. TTL counts from the END of the
+    last fetch, so consecutive callers within TTL seconds get the cached copy.
+    """
+    import time as _time
+    cached = _HODL_MERGE_CACHE
+    if cached["value"] is not None and (_time.monotonic() - cached["at"]) < _HODL_MERGE_TTL:
+        return cached["value"]
+
+    bundle: dict = {"hodl": {}, "slow_q": {}, "http_s": {}, "pg": {}}
+    # Live endpoint walks /proc and runs several DB queries; needs 6s headroom.
+    bundle["hodl"] = _fetch_json(HODL_CRONOPS_URL, timeout=6.0)
+    if "running" in bundle["hodl"] or "recent" in bundle["hodl"]:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_slow = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/slow-queries/", 7.0)
+            f_http = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/http-stats/", 7.0)
+            f_pg = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/postgres/", 7.0)
+            bundle["slow_q"] = f_slow.result()
+            bundle["http_s"] = f_http.result()
+            bundle["pg"] = f_pg.result()
+    cached["value"] = bundle
+    cached["at"] = _time.monotonic()  # post-work, so TTL counts from completion
+    return bundle
+
+
 def _merge_hodl_cronops_state(state: dict) -> dict:
-    # Live endpoint walks /proc and runs several DB queries on a busy host;
-    # 6s timeout is realistic, dashboard refresh is debounced anyway.
-    hodl = _fetch_json(HODL_CRONOPS_URL, timeout=6.0)
+    bundle = _fetch_hodl_bundle()
+    hodl = bundle["hodl"]
     if "running" not in hodl and "recent" not in hodl:
         state["hodl_cronops"] = {"status": "unreachable", "error": hodl.get("error")}
         return state
@@ -123,19 +154,10 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
     active = [_hodl_run_to_live(run) for run in hodl.get("running", [])]
     recent = [_hodl_run_to_live(run) for run in hodl.get("recent", [])]
     orphans = hodl.get("orphans", [])
+    slow_q = bundle["slow_q"]
+    http_s = bundle["http_s"]
+    pg = bundle["pg"]
 
-    # Fan out to the three detail endpoints in parallel — the Django dev
-    # runserver on the HODL side is single-threaded and each call costs
-    # ~3-4s, so doing them serially would push the dashboard to 12+s.
-    # ThreadPoolExecutor lets total wait be max() of the three, ~5s.
-    from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        f_slow = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/slow-queries/", 7.0)
-        f_http = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/http-stats/", 7.0)
-        f_pg = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/postgres/", 7.0)
-        slow_q = f_slow.result()
-        http_s = f_http.result()
-        pg = f_pg.result()
     state["slow_queries"] = slow_q.get("slow_queries", []) if isinstance(slow_q, dict) else []
     state["http_stats"] = http_s.get("hosts", []) if isinstance(http_s, dict) else []
     state["postgres"] = pg if isinstance(pg, dict) and "connections_by_state" in pg else {}
