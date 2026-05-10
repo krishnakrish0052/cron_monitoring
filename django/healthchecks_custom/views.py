@@ -176,6 +176,20 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
     state.setdefault("recent_runs", [])
     state["active_crons"] = active + state["active_crons"]
     state["recent_runs"] = recent[:20] + state["recent_runs"]
+    state.setdefault("external_errors", [])
+    for item in active + recent:
+        error = item.get("external_error") or item.get("diagnostic")
+        if error:
+            state["external_errors"].append(
+                {
+                    "project": item.get("project"),
+                    "function": item.get("function"),
+                    "run_id": item.get("run_id"),
+                    "severity": error.get("severity"),
+                    "type": error.get("type"),
+                    "message": error.get("message"),
+                }
+            )
     state["orphans"] = orphans
     state["hodl_cronops"] = {
         "status": "ok",
