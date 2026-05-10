@@ -49,6 +49,10 @@ MONITORING_PROJECTS = (
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
 HODL_CRONOPS_URL = os.environ.get("HODL_CRONOPS_URL", "http://127.0.0.1:8001/api/cronops/live/")
 HODL_CRONOPS_BASE = os.environ.get("HODL_CRONOPS_BASE", "http://127.0.0.1:8001/api/cronops")
+INFRA_SERIES_LIMIT = int(os.environ.get("MONITORING_INFRA_SERIES_LIMIT", "300"))
+LIVE_RECENT_RUN_LIMIT = int(os.environ.get("MONITORING_LIVE_RECENT_RUN_LIMIT", "10"))
+LIVE_EVENT_LIMIT = int(os.environ.get("MONITORING_LIVE_EVENT_LIMIT", "5"))
+DB_MAINTENANCE_CACHE_SECONDS = float(os.environ.get("DB_MAINTENANCE_CACHE_SECONDS", "60"))
 IST = ZoneInfo("Asia/Kolkata")
 
 HODL_CRON_UUIDS = {
@@ -115,7 +119,10 @@ def _hodl_run_to_live(run: dict) -> dict:
 
 
 _HODL_MERGE_CACHE: dict = {"at": 0.0, "value": None}
-_HODL_MERGE_TTL = 5.0  # seconds, counted from when the bundle finished fetching
+_DB_MAINTENANCE_CACHE: dict = {"at": 0.0, "value": None}
+_HODL_MERGE_TTL = float(os.environ.get("HODL_CRONOPS_CACHE_SECONDS", "15"))
+_HODL_CRONOPS_LIVE_TIMEOUT = float(os.environ.get("HODL_CRONOPS_LIVE_TIMEOUT", "1.5"))
+_HODL_CRONOPS_DETAIL_TIMEOUT = float(os.environ.get("HODL_CRONOPS_DETAIL_TIMEOUT", "2.0"))
 
 
 def _fetch_hodl_bundle() -> dict:
@@ -130,14 +137,16 @@ def _fetch_hodl_bundle() -> dict:
         return cached["value"]
 
     bundle: dict = {"hodl": {}, "slow_q": {}, "http_s": {}, "pg": {}}
-    # Live endpoint walks /proc and runs several DB queries; needs 6s headroom.
-    bundle["hodl"] = _fetch_json(HODL_CRONOPS_URL, timeout=6.0)
+    # These endpoints can become slow while HODL crons or DB work are busy.
+    # Keep dashboard requests fast; stale cached data is better than tying up
+    # all gunicorn workers and making Healthchecks itself unreachable.
+    bundle["hodl"] = _fetch_json(HODL_CRONOPS_URL, timeout=_HODL_CRONOPS_LIVE_TIMEOUT)
     if "running" in bundle["hodl"] or "recent" in bundle["hodl"]:
         from concurrent.futures import ThreadPoolExecutor
         with ThreadPoolExecutor(max_workers=3) as pool:
-            f_slow = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/slow-queries/", 7.0)
-            f_http = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/http-stats/", 7.0)
-            f_pg = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/postgres/", 7.0)
+            f_slow = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/slow-queries/", _HODL_CRONOPS_DETAIL_TIMEOUT)
+            f_http = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/http-stats/", _HODL_CRONOPS_DETAIL_TIMEOUT)
+            f_pg = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/postgres/", _HODL_CRONOPS_DETAIL_TIMEOUT)
             bundle["slow_q"] = f_slow.result()
             bundle["http_s"] = f_http.result()
             bundle["pg"] = f_pg.result()
@@ -278,7 +287,64 @@ def _series_from_state(key: str, state: dict) -> list[dict]:
                 "value": round(float(value), 4),
             }
         )
-    return points[-3600:]
+    return points[-INFRA_SERIES_LIMIT:]
+
+
+def _trim_events(events: list[dict] | None, limit: int = LIVE_EVENT_LIMIT) -> list[dict]:
+    trimmed = []
+    for event in (events or [])[-limit:]:
+        data = event.get("data") or {}
+        trimmed.append(
+            {
+                "at_utc": event.get("at_utc"),
+                "at_ist": event.get("at_ist"),
+                "type": event.get("type"),
+                "severity": event.get("severity"),
+                "message": event.get("message"),
+                "data": {
+                    "classification": data.get("classification"),
+                    "operation": data.get("operation"),
+                    "table": data.get("table"),
+                    "duration_seconds": data.get("duration_seconds"),
+                    "status_code": data.get("status_code"),
+                    "function": data.get("function"),
+                    "line": data.get("line"),
+                },
+            }
+        )
+    return trimmed
+
+
+def _trim_cron_item(item: dict) -> dict:
+    return {
+        key: value
+        for key, value in item.items()
+        if key not in ("recent_events", "events", "stack", "stack_snapshot")
+    } | {"recent_events": _trim_events(item.get("recent_events"))}
+
+
+def _slim_live_payload(state: dict) -> dict:
+    payload = dict(state)
+    payload.pop("server_series", None)
+    payload["active_crons"] = [_trim_cron_item(item) for item in payload.get("active_crons", [])]
+    payload["stale_crons"] = [_trim_cron_item(item) for item in payload.get("stale_crons", [])[:10]]
+    payload["recent_runs"] = [
+        _trim_cron_item(item)
+        for item in payload.get("recent_runs", [])[:LIVE_RECENT_RUN_LIMIT]
+    ]
+    payload["external_errors"] = payload.get("external_errors", [])[:10]
+    return payload
+
+
+def _cached_db_maintenance_payload() -> dict:
+    current = time.monotonic()
+    cached = _DB_MAINTENANCE_CACHE
+    if cached["value"] is not None and current - cached["at"] < DB_MAINTENANCE_CACHE_SECONDS:
+        return cached["value"]
+    payload = all_health()
+    cached["value"] = payload
+    cached["at"] = time.monotonic()
+    return payload
 
 
 def _bytes_payload(used_query: str, total_query: str, free_query: str) -> dict:
@@ -515,13 +581,13 @@ def monitoring_infrastructure(request: AuthenticatedHttpRequest) -> HttpResponse
 
 @login_required
 def monitoring_live(request: AuthenticatedHttpRequest) -> HttpResponse:
-    return JsonResponse(_merge_hodl_cronops_state(read_state()))
+    return JsonResponse(_slim_live_payload(_merge_hodl_cronops_state(read_state())))
 
 
 @login_required
 @require_GET
 def monitoring_db_maintenance(request: AuthenticatedHttpRequest) -> HttpResponse:
-    payload = all_health()
+    payload = dict(_cached_db_maintenance_payload())
     payload["can_manage"] = _can_run_db_maintenance(request)
     return JsonResponse(payload)
 

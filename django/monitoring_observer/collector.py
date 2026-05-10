@@ -19,6 +19,10 @@ PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
 STALE_SECONDS = int(os.environ.get("MONITORING_OBSERVER_STALE_SECONDS", "90"))
 IST = ZoneInfo("Asia/Kolkata")
 SERVER_SERIES_LIMIT = int(os.environ.get("MONITORING_SERVER_SERIES_LIMIT", "3600"))
+HEARTBEAT_SCAN_WINDOW_SECONDS = int(os.environ.get("MONITORING_HEARTBEAT_SCAN_WINDOW_SECONDS", "900"))
+HEARTBEAT_SCAN_LIMIT = int(os.environ.get("MONITORING_HEARTBEAT_SCAN_LIMIT", "500"))
+RECENT_RUN_SCAN_LIMIT = int(os.environ.get("MONITORING_RECENT_RUN_SCAN_LIMIT", "250"))
+INLINE_COLLECT_FALLBACK = os.environ.get("MONITORING_ALLOW_INLINE_COLLECT", "0") == "1"
 _PREVIOUS_CPU = None
 _RECENT_CACHE_AT = 0.0
 _RECENT_CACHE = []
@@ -179,37 +183,51 @@ def recent_runs(limit: int = 25) -> list[dict]:
     if _RECENT_CACHE and current - _RECENT_CACHE_AT < 10:
         return _RECENT_CACHE[:limit]
 
+    paths = sorted(
+        LOG_ROOT.glob("*/*/*.json"),
+        key=lambda item: item.stat().st_mtime if item.exists() else 0,
+        reverse=True,
+    )[:RECENT_RUN_SCAN_LIMIT]
     items = []
-    for path in LOG_ROOT.glob("*/*/*.json"):
+    for path in paths:
         payload = load_json(path)
         if payload:
             payload.setdefault("events_path", str(path.with_suffix(".events.jsonl")))
-            events = read_events(payload.get("events_path"), 12)
-            payload["recent_events"] = events
-            payload["external_error"] = payload.get("external_error") or next(
-                (
-                    event.get("data", {}).get("classification")
-                    for event in reversed(events)
-                    if event.get("data", {}).get("classification", {}).get("severity") in ("warning", "error")
-                ),
-                None,
-            )
             items.append(payload)
     items.sort(key=lambda item: item.get("started_at") or "", reverse=True)
-    _RECENT_CACHE = items[:limit]
+    selected = items[:limit]
+    for payload in selected:
+        events = read_events(payload.get("events_path"), 12)
+        payload["recent_events"] = events
+        payload["external_error"] = payload.get("external_error") or next(
+            (
+                event.get("data", {}).get("classification")
+                for event in reversed(events)
+                if event.get("data", {}).get("classification", {}).get("severity") in ("warning", "error")
+            ),
+            None,
+        )
+    _RECENT_CACHE = selected
     _RECENT_CACHE_AT = current
     return _RECENT_CACHE[:limit]
 
 
 def collect_heartbeats() -> tuple[list[dict], list[dict]]:
     current = utcnow()
+    min_mtime = time.time() - max(HEARTBEAT_SCAN_WINDOW_SECONDS, STALE_SECONDS * 2)
     active = []
     stale = []
+    paths = []
     for path in (RUNTIME_ROOT / "heartbeats").glob("*/*/*.json"):
+        with contextlib.suppress(OSError):
+            stat = path.stat()
+            if stat.st_mtime >= min_mtime:
+                paths.append((stat.st_mtime, path))
+    paths.sort(reverse=True)
+    for _, path in paths[:HEARTBEAT_SCAN_LIMIT]:
         payload = load_json(path)
         if not payload:
             continue
-        payload["recent_events"] = read_events(payload.get("events_path"), 20)
         updated = parse_ts(payload.get("updated_at_utc"))
         age = (current - updated).total_seconds() if updated else 999999
         payload["heartbeat_age_seconds"] = round(age, 3)
@@ -219,8 +237,10 @@ def collect_heartbeats() -> tuple[list[dict], list[dict]]:
             and pid_exists(payload.get("pid"))
         )
         if payload["active"]:
+            payload["recent_events"] = read_events(payload.get("events_path"), 20)
             active.append(payload)
         elif payload.get("status") == "running":
+            payload["recent_events"] = read_events(payload.get("events_path"), 8)
             payload["stale"] = True
             stale.append(payload)
 
@@ -301,4 +321,31 @@ def read_state(max_age_seconds: int = 5) -> dict:
         generated = parse_ts(payload.get("generated_at_utc"))
         if generated and (utcnow() - generated).total_seconds() <= max_age_seconds:
             return payload
-    return collect_state()
+        payload["state_stale"] = True
+        payload["state_age_seconds"] = (
+            round((utcnow() - generated).total_seconds(), 3) if generated else None
+        )
+        return payload
+    if INLINE_COLLECT_FALLBACK:
+        return collect_state()
+    current = utcnow()
+    return {
+        "generated_at_utc": iso(current),
+        "generated_at_ist": iso_ist(current),
+        "state_unavailable": True,
+        "active_crons": [],
+        "stale_crons": [],
+        "recent_runs": [],
+        "external_errors": [],
+        "server_series": [],
+        "totals": {
+            "running": 0,
+            "stale": 0,
+            "cpu_percent": 0,
+            "rss_bytes": 0,
+            "db_queries": 0,
+            "slow_db_queries": 0,
+            "processes": 0,
+        },
+        "server": server_snapshot(None),
+    }

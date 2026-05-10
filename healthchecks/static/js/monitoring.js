@@ -7,6 +7,7 @@
     var lastLive = null;
     var lastOverview = null;
     var cronFilter = {text: "", status: "all"};
+    var inflight = {};
     var istFormatter = new Intl.DateTimeFormat("en-IN", {
         timeZone: "Asia/Kolkata",
         year: "numeric",
@@ -426,6 +427,8 @@
     }
 
     function loadOverview() {
+        if (inflight.overview) return inflight.overview;
+        inflight.overview = true;
         return fetch(root.dataset.overviewUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
@@ -433,10 +436,13 @@
                 renderSummary(data.totals || {});
                 renderProjects(data.projects || []);
                 renderActionCenter();
-            });
+            })
+            .finally(function () { inflight.overview = false; });
     }
 
     function loadInfrastructure() {
+        if (inflight.infrastructure) return inflight.infrastructure;
+        inflight.infrastructure = true;
         return fetch(root.dataset.infraUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
@@ -449,7 +455,8 @@
                 drawChart($("infra-memory"), metrics.memory && metrics.memory.series, {small: true, percent: true, unit: "%", color: "#00b4ff"});
                 drawChart($("infra-disk"), metrics.disk && metrics.disk.series, {small: true, percent: true, unit: "%", color: "#ffb000"});
                 drawChart($("infra-nginx_requests"), metrics.nginx_requests && metrics.nginx_requests.series, {small: true, unit: "", color: "#f72585"});
-            });
+            })
+            .finally(function () { inflight.infrastructure = false; });
     }
 
     function liveCronName(item) {
@@ -592,6 +599,8 @@
     }
 
     function loadLive() {
+        if (inflight.live) return inflight.live;
+        inflight.live = true;
         return fetch(root.dataset.liveUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
@@ -606,7 +615,8 @@
                 renderHttpStats(data);
                 renderSlowSQL(data);
                 renderActionCenter();
-            });
+            })
+            .finally(function () { inflight.live = false; });
     }
 
     function renderPostgres(data) {
@@ -809,13 +819,16 @@
 
     function loadDbMaintenance() {
         if (!root.dataset.dbMaintenanceUrl) return Promise.resolve();
+        if (inflight.dbMaintenance) return inflight.dbMaintenance;
+        inflight.dbMaintenance = true;
         return fetch(root.dataset.dbMaintenanceUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(renderDbMaintenance)
             .catch(function (err) {
                 var container = $("monitoring-db-maintenance");
                 if (container) container.innerHTML = '<div class="monitoring-muted">DB maintenance data failed to load: ' + esc(err.message) + '</div>';
-            });
+            })
+            .finally(function () { inflight.dbMaintenance = false; });
     }
 
     function renderHttpStats(data) {
@@ -911,6 +924,8 @@
     window.loadCronHistory = loadCronHistory;
 
     function loadCheckSeries(code) {
+        if (inflight.checkSeries) return inflight.checkSeries;
+        inflight.checkSeries = true;
         var url = root.dataset.seriesTemplate.replace("__CODE__", code);
         return fetch(url, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
@@ -935,11 +950,14 @@
                 $("monitoring-selected-links").innerHTML =
                     '<a class="btn monitoring-mini-btn" href="' + esc(data.check.details_url) + '">Details</a>' +
                     '<a class="btn monitoring-mini-btn" href="' + esc(data.check.log_url) + '">Ping/Event Log</a>';
-            });
+            })
+            .finally(function () { inflight.checkSeries = false; });
     }
 
     function loadCheckLive(code) {
         if (!code) return Promise.resolve();
+        if (inflight.checkLive) return inflight.checkLive;
+        inflight.checkLive = true;
         var url = root.dataset.liveTemplate.replace("__CODE__", code);
         return fetch(url, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
@@ -948,10 +966,13 @@
                 var lastRun = data.last_run || {};
                 var events = active.length ? (active[0].recent_events || []) : (lastRun.recent_events || []);
                 renderEventList("monitoring-trace-events", events, "No deep trace events yet. New runs will include HTTP, DB, stack, and Python trace events.");
-            });
+            })
+            .finally(function () { inflight.checkLive = false; });
     }
 
     function loadRuns(code) {
+        if (inflight.runs) return inflight.runs;
+        inflight.runs = true;
         var url = root.dataset.runsTemplate.replace("__CODE__", code);
         return fetch(url, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
@@ -979,11 +1000,14 @@
                 });
 
                 loadExecutionLog(code, selectedRun);
-            });
+            })
+            .finally(function () { inflight.runs = false; });
     }
 
     function loadExecutionLog(code, runId) {
         if (!code) return Promise.resolve();
+        if (inflight.executionLog) return inflight.executionLog;
+        inflight.executionLog = true;
         var url = root.dataset.logTemplate.replace("__CODE__", code);
         if (runId) url += "?run=" + encodeURIComponent(runId);
         return fetch(url, {credentials: "same-origin"})
@@ -997,7 +1021,8 @@
                     (eventText ? "Structured trace events\n" + eventText + "\n\nRaw execution log\n" : "") +
                     (data.content || data.message || "No log content.");
                 renderEventList("monitoring-trace-events", data.events || [], "No deep trace events found for this run.");
-            });
+            })
+            .finally(function () { inflight.executionLog = false; });
     }
 
     function refresh() {
