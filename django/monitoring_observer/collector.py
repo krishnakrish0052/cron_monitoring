@@ -21,6 +21,7 @@ IST = ZoneInfo("Asia/Kolkata")
 SERVER_SERIES_LIMIT = int(os.environ.get("MONITORING_SERVER_SERIES_LIMIT", "3600"))
 HEARTBEAT_SCAN_WINDOW_SECONDS = int(os.environ.get("MONITORING_HEARTBEAT_SCAN_WINDOW_SECONDS", "900"))
 HEARTBEAT_SCAN_LIMIT = int(os.environ.get("MONITORING_HEARTBEAT_SCAN_LIMIT", "500"))
+HEARTBEAT_RETENTION_SECONDS = int(os.environ.get("MONITORING_HEARTBEAT_RETENTION_SECONDS", "300"))
 RECENT_RUN_SCAN_LIMIT = int(os.environ.get("MONITORING_RECENT_RUN_SCAN_LIMIT", "250"))
 INLINE_COLLECT_FALLBACK = os.environ.get("MONITORING_ALLOW_INLINE_COLLECT", "0") == "1"
 _PREVIOUS_CPU = None
@@ -215,12 +216,17 @@ def recent_runs(limit: int = 25) -> list[dict]:
 def collect_heartbeats() -> tuple[list[dict], list[dict]]:
     current = utcnow()
     min_mtime = time.time() - max(HEARTBEAT_SCAN_WINDOW_SECONDS, STALE_SECONDS * 2)
+    delete_before = time.time() - HEARTBEAT_RETENTION_SECONDS
     active = []
     stale = []
     paths = []
     for path in (RUNTIME_ROOT / "heartbeats").glob("*/*/*.json"):
         with contextlib.suppress(OSError):
             stat = path.stat()
+            if stat.st_mtime < delete_before:
+                with contextlib.suppress(OSError):
+                    path.unlink()
+                continue
             if stat.st_mtime >= min_mtime:
                 paths.append((stat.st_mtime, path))
     paths.sort(reverse=True)
@@ -240,9 +246,16 @@ def collect_heartbeats() -> tuple[list[dict], list[dict]]:
             payload["recent_events"] = read_events(payload.get("events_path"), 20)
             active.append(payload)
         elif payload.get("status") == "running":
+            if not pid_exists(payload.get("pid")) and age > STALE_SECONDS * 2:
+                with contextlib.suppress(OSError):
+                    path.unlink()
+                continue
             payload["recent_events"] = read_events(payload.get("events_path"), 8)
             payload["stale"] = True
             stale.append(payload)
+        elif age > STALE_SECONDS:
+            with contextlib.suppress(OSError):
+                path.unlink()
 
     active.sort(key=lambda item: item.get("elapsed_seconds") or 0, reverse=True)
     stale.sort(key=lambda item: item.get("updated_at_utc") or "", reverse=True)
