@@ -67,17 +67,27 @@ def monitored_cron(func):
                 return result
             except Exception:
                 error = traceback.format_exc()
-                run.mark_failure(error)
-                # Ping failure with traceback details
-                try:
-                    requests.post(
-                        f"{HC_PING_BASE}/{uuid}/fail",
-                        data=error,
-                        timeout=5,
-                    )
-                except Exception:
-                    pass
-                raise
+                if run.is_warning_only_error(error):
+                    run.mark_warning(error)
+                    # Keep Healthchecks up for known external API plan issues;
+                    # the monitoring dashboard still records the warning details.
+                    try:
+                        requests.post(f"{HC_PING_BASE}/{uuid}", data=error, timeout=5)
+                    except Exception:
+                        pass
+                    return None
+                else:
+                    run.mark_failure(error)
+                    # Ping failure with traceback details
+                    try:
+                        requests.post(
+                            f"{HC_PING_BASE}/{uuid}/fail",
+                            data=error,
+                            timeout=5,
+                        )
+                    except Exception:
+                        pass
+                    raise
 
     return wrapper
 

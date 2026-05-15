@@ -29,6 +29,9 @@ MAX_TRACE_EVENTS = int(os.environ.get("MONITORING_CRON_MAX_TRACE_EVENTS", "8000"
 MAX_RECENT_EVENTS = int(os.environ.get("MONITORING_CRON_RECENT_EVENTS", "80"))
 TRACE_ENABLED = os.environ.get("MONITORING_CRON_TRACE", "1") != "0"
 IST = ZoneInfo("Asia/Kolkata")
+WARNING_ONLY_EXTERNAL_TYPES = {
+    "etherscan_paid_tier_required",
+}
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 _SQL_OP_TABLE = re.compile(
     r"^\s*(SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+([`\".\w]+)?",
@@ -127,8 +130,8 @@ def _classify_external_payload(url: str, payload: object) -> dict:
             classification.update(
                 {
                     "type": "etherscan_paid_tier_required",
-                    "severity": "error",
-                    "message": "Etherscan V2 rejected this chain for the current API plan; Base chain API access requires a plan/key with full chain coverage.",
+                    "severity": "warning",
+                    "message": "Etherscan V2 rejected this chain for the current API plan; this is tracked as an external API warning, not a cron code failure.",
                 }
             )
         elif status == "0" and isinstance(result, str):
@@ -683,6 +686,42 @@ class CronRunCapture:
             self._log_file.write(error)
             if not error.endswith("\n"):
                 self._log_file.write("\n")
+
+    def is_warning_only_error(self, error: str = "") -> bool:
+        external_type = ""
+        if isinstance(self._external_error, dict):
+            external_type = self._external_error.get("type", "")
+        if external_type in WARNING_ONLY_EXTERNAL_TYPES:
+            return True
+
+        text = (error or "").lower()
+        return (
+            "free api access is not supported" in text
+            or "upgrade your api plan" in text
+            or "etherscan_paid_tier_required" in text
+        )
+
+    def mark_warning(self, error: str):
+        with self._lock:
+            self.status = "warning"
+            self.error = error[-4000:]
+            self._stage = "external api warning"
+        self._emit_event(
+            "warning",
+            "warning",
+            "Cron hit a known external API/plan issue. Marked as warning instead of failed.",
+            {"traceback": self.error, "external_error": self._external_error},
+        )
+        if self._log_file:
+            self._log_file.write("[monitoring] WARNING\n")
+            self._log_file.write(
+                "Known external API/plan issue. Cron did not complete its external fetch, "
+                "but this is not counted as an app-code failure.\n"
+            )
+            if error:
+                self._log_file.write(error)
+                if not error.endswith("\n"):
+                    self._log_file.write("\n")
 
     def __exit__(self, exc_type, exc, tb):
         if exc_type and self.status == "running":

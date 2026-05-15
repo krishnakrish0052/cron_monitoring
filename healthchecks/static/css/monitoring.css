@@ -525,8 +525,16 @@ body.page-monitoring .footer {
 }
 
 .monitoring-status.grace,
-.monitoring-status.running {
+.monitoring-status.running,
+.monitoring-status.warning {
     background: rgba(255, 176, 0, .12);
+    box-shadow: 0 0 16px rgba(255, 176, 0, .2);
+    color: var(--gold);
+}
+
+.log-run-btn.warning,
+.recent-run.warning {
+    border-color: rgba(255, 176, 0, .45);
     color: var(--gold);
 }
 
