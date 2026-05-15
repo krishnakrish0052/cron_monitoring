@@ -432,10 +432,14 @@
         return fetch(root.dataset.overviewUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                clearError("monitoring-projects");
                 lastOverview = data;
                 renderSummary(data.totals || {});
                 renderProjects(data.projects || []);
                 renderActionCenter();
+            })
+            .catch(function (err) {
+                showError("monitoring-projects", "Overview data failed to load: " + err.message);
             })
             .finally(function () { inflight.overview = false; });
     }
@@ -446,6 +450,7 @@
         return fetch(root.dataset.infraUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                clearError("monitoring-infra-grid");
                 var metrics = data.metrics || {};
                 var order = ["cpu", "memory", "disk", "nginx_requests"];
                 $("monitoring-infra-grid").innerHTML = order.map(function (key) {
@@ -455,6 +460,9 @@
                 drawChart($("infra-memory"), metrics.memory && metrics.memory.series, {small: true, percent: true, unit: "%", color: "#00b4ff"});
                 drawChart($("infra-disk"), metrics.disk && metrics.disk.series, {small: true, percent: true, unit: "%", color: "#ffb000"});
                 drawChart($("infra-nginx_requests"), metrics.nginx_requests && metrics.nginx_requests.series, {small: true, unit: "", color: "#f72585"});
+            })
+            .catch(function (err) {
+                showError("monitoring-infra-grid", "Infrastructure metrics failed to load: " + err.message);
             })
             .finally(function () { inflight.infrastructure = false; });
     }
@@ -468,6 +476,8 @@
         var totals = data.totals || {};
         var server = data.server || {};
         $("monitoring-live-clock").textContent = "IST " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
+        var updatedEl = $("monitoring-live-updated");
+        if (updatedEl) updatedEl.textContent = "Last updated: " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
         $("monitoring-live-summary").innerHTML = [
             ["Running crons", totals.running || 0],
             ["Cron procs", totals.processes || 0],
@@ -604,6 +614,7 @@
         return fetch(root.dataset.liveUrl, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                clearError("monitoring-live-crons");
                 lastLive = data;
                 renderLiveSummary(data);
                 renderLiveCrons(data);
@@ -615,6 +626,9 @@
                 renderHttpStats(data);
                 renderSlowSQL(data);
                 renderActionCenter();
+            })
+            .catch(function (err) {
+                showError("monitoring-live-crons", "Live monitoring data failed to load: " + err.message);
             })
             .finally(function () { inflight.live = false; });
     }
@@ -930,6 +944,7 @@
         return fetch(url, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                clearError("monitoring-duration-chart");
                 var points = data.durations || [];
                 var values = points.map(function (point) { return point.value; });
                 var stats = statsFromValues(values);
@@ -951,6 +966,9 @@
                     '<a class="btn monitoring-mini-btn" href="' + esc(data.check.details_url) + '">Details</a>' +
                     '<a class="btn monitoring-mini-btn" href="' + esc(data.check.log_url) + '">Ping/Event Log</a>';
             })
+            .catch(function (err) {
+                showError("monitoring-duration-chart", "Check series data failed to load: " + err.message);
+            })
             .finally(function () { inflight.checkSeries = false; });
     }
 
@@ -962,10 +980,14 @@
         return fetch(url, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                clearError("monitoring-trace-events");
                 var active = data.active || [];
                 var lastRun = data.last_run || {};
                 var events = active.length ? (active[0].recent_events || []) : (lastRun.recent_events || []);
                 renderEventList("monitoring-trace-events", events, "No deep trace events yet. New runs will include HTTP, DB, stack, and Python trace events.");
+            })
+            .catch(function (err) {
+                showError("monitoring-trace-events", "Trace events failed to load: " + err.message);
             })
             .finally(function () { inflight.checkLive = false; });
     }
@@ -977,6 +999,7 @@
         return fetch(url, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                clearError("monitoring-log-runs");
                 var runs = data.runs || [];
                 if (!runs.length) {
                     $("monitoring-log-runs").innerHTML = "";
@@ -1001,6 +1024,9 @@
 
                 loadExecutionLog(code, selectedRun);
             })
+            .catch(function (err) {
+                showError("monitoring-log-runs", "Run history failed to load: " + err.message);
+            })
             .finally(function () { inflight.runs = false; });
     }
 
@@ -1013,6 +1039,7 @@
         return fetch(url, {credentials: "same-origin"})
             .then(function (response) { return response.json(); })
             .then(function (data) {
+                clearError("monitoring-execution-log");
                 var eventText = (data.events || []).slice(-40).map(function (event) {
                     return "[" + formatIST(event.at_ist || event.at_utc) + "] " + event.type + " " + event.severity + " - " + (event.message || "");
                 }).join("\n");
@@ -1021,6 +1048,9 @@
                     (eventText ? "Structured trace events\n" + eventText + "\n\nRaw execution log\n" : "") +
                     (data.content || data.message || "No log content.");
                 renderEventList("monitoring-trace-events", data.events || [], "No deep trace events found for this run.");
+            })
+            .catch(function (err) {
+                showError("monitoring-execution-log", "Execution log failed to load: " + err.message);
             })
             .finally(function () { inflight.executionLog = false; });
     }
@@ -1064,8 +1094,8 @@
         });
     });
     refresh();
-    setInterval(loadLive, 1000);
-    setInterval(loadInfrastructure, 5000);
+    setInterval(loadLive, 3000);
+    setInterval(loadInfrastructure, 10000);
     setInterval(loadDbMaintenance, 30000);
     setInterval(refresh, 30000);
     setInterval(function () {
@@ -1075,5 +1105,5 @@
         } else if (lastLive) {
             renderRecentRuns(lastLive);
         }
-    }, 5000);
+    }, 10000);
 })();

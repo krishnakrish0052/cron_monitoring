@@ -118,7 +118,8 @@ module.exports = {
         PYTHONPATH: '/home/ubuntu/monitoring/django',
         MONITORING_ROOT: '/home/ubuntu/monitoring',
         MONITORING_RUNTIME_ROOT: '/home/ubuntu/monitoring/runtime/observer',
-        MONITORING_CRON_LOG_ROOT: '/home/ubuntu/monitoring/logs/crons'
+        MONITORING_CRON_LOG_ROOT: '/home/ubuntu/monitoring/logs/crons',
+        MONITORING_OBSERVER_INTERVAL_SECONDS: '15'
       },
       restart_delay: 4000,
       max_restarts: 10,
