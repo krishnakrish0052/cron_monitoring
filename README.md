@@ -9,6 +9,7 @@ This directory owns the monitoring runtime for AK1111 and HODL. The main app rep
 - HODL wrapper: `/home/ubuntu/monitoring/django/hodl`
 - Shared wrapper utilities: `/home/ubuntu/monitoring/django/monitoring_common`
 - Live observer service: `/home/ubuntu/monitoring/django/monitoring_observer`
+- Infrastructure Slack alert worker: `/home/ubuntu/monitoring/django/infra_alerts`
 - DB maintenance service: `/home/ubuntu/monitoring/django/db_maintenance`
 - Healthchecks dashboard extension: `/home/ubuntu/monitoring/django/healthchecks_custom`
 - Prometheus config and data: `/home/ubuntu/monitoring/prometheus`
@@ -32,6 +33,65 @@ All monitoring-related services are managed by PM2 from `/home/ubuntu/monitoring
 `cron-observer` is a PM2-managed Python service that aggregates live cron heartbeat files every second. It does not touch the AK1111 or HODL app repositories.
 
 `db-maintenance-worker` is a PM2-managed Python service that runs operator-approved Postgres maintenance jobs from the dashboard queue. It uses runtime DB credentials from the app `.env` files and stores job history under `runtime/`, which is excluded from Git.
+
+`infra-alert-worker` is a PM2-managed Python service that queries Prometheus every 30 seconds, evaluates server and monitoring thresholds, deduplicates Slack alerts, sends reminder messages, and sends resolved messages. It also refreshes the local Healthchecks “Server Health” checks so those checks stay live without exposing ping URLs in crontab.
+
+## Infrastructure Alerting: Earlier Vs Now
+
+### Earlier
+
+- Slack notifications came from Healthchecks check transitions only.
+- Healthchecks could tell us a cron stopped pinging, but it did not continuously evaluate CPU, memory, disk, or Prometheus target health.
+- Prometheus scraped node and NGINX metrics, but there was no threshold alerting process connected to Slack.
+- Already-down checks such as “Server Health” could remain down with `alert_after=None`, so they did not keep sending fresh alerts.
+- Server CPU could reach 95-100% while Prometheus recorded it, but Slack did not fire because no server-threshold alert rule was running.
+
+### Now
+
+- `infra-alert-worker` runs under PM2 and evaluates infrastructure rules every 30 seconds.
+- Alert state is persisted under `/home/ubuntu/monitoring/runtime/infra-alerts/state.json` so alerts are deduped across worker loops.
+- Slack alerts are sent only when `MONITORING_SLACK_WEBHOOK_URL` is present in the PM2 environment. Without it, the worker logs messages but does not hardcode or leak secrets.
+- Alerts include first fire, reminder, and resolved transitions.
+- Current rules cover:
+  - CPU `>90%` for 5 minutes.
+  - CPU `>95%` for 10 minutes.
+  - Memory available `<20%` for 5 minutes.
+  - Memory available `<10%` for 5 minutes.
+  - Disk used `>85%` warning.
+  - Disk used `>92%` critical.
+  - HODL stale cron count `>0` for 3 minutes.
+  - Prometheus scrape target `up == 0`.
+- The worker reads HODL cron state from `http://127.0.0.1:8001/api/cronops/live/`.
+- The old “Server Health” Healthchecks records are refreshed by the worker every 5 minutes.
+
+### How It Is Achieved
+
+- Service code: `/home/ubuntu/monitoring/django/infra_alerts/service.py`
+- Start script: `/home/ubuntu/monitoring/bin/start-infra-alert-worker.sh`
+- PM2 app definition: `/home/ubuntu/monitoring/ecosystem.config.js`
+- Prometheus source: `http://127.0.0.1:9090`
+- HODL cronops source: `http://127.0.0.1:8001/api/cronops/live/`
+- Runtime alert state: `/home/ubuntu/monitoring/runtime/infra-alerts/state.json`
+- Healthchecks server-health refresh names:
+  - `Server Health Check`
+  - `HODL-2025 Server Health`
+
+### Why
+
+Healthchecks is still useful for cron ping lifecycle, but CPU saturation is a server metric, not a cron ping transition. Prometheus already knows the server pressure. The worker turns those metrics into Slack alerts, dedupes noisy repeats, and reports recovery when the server returns below threshold.
+
+### Required Environment
+
+```text
+MONITORING_SLACK_WEBHOOK_URL=<Slack incoming webhook URL>
+```
+
+After setting or changing the webhook:
+
+```bash
+pm2 reload infra-alert-worker --update-env
+pm2 save
+```
 
 ## Dashboard
 
