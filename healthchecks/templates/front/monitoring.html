@@ -31,6 +31,7 @@
 
         <div class="monitoring-quick-nav">
             <a href="#monitoring-action-center">Action Center</a>
+            <a href="#monitoring-cronops-panel">CronOps Lanes</a>
             <a href="#monitoring-live-panel">Live Crons</a>
             <a href="#monitoring-projects-panel">Cron Tables</a>
             <a href="#monitoring-selected-panel">Selected Cron</a>
@@ -47,6 +48,45 @@
                 <span id="monitoring-action-updated" class="monitoring-muted">Loading...</span>
             </div>
             <div id="monitoring-action-grid" class="monitoring-action-grid"></div>
+        </div>
+
+        <div id="monitoring-cronops-panel" class="monitoring-panel monitoring-cronops-panel">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>CronOps Lanes</h2>
+                    <p class="monitoring-muted">Authoritative HODL queue, worker, and DB-outage spool state from CronOps.</p>
+                </div>
+                <span id="monitoring-cronops-updated" class="monitoring-muted">Loading...</span>
+            </div>
+            <div id="monitoring-cronops-cards" class="monitoring-cronops-cards"></div>
+            <div class="row">
+                <div class="col-md-6">
+                    <h3 class="monitoring-section-title">Queue By Lane</h3>
+                    <div class="table-responsive five-row-table-wrap">
+                        <table class="table table-condensed monitoring-live-table">
+                            <thead>
+                                <tr><th>Lane</th><th>Status</th><th>Count</th></tr>
+                            </thead>
+                            <tbody id="monitoring-cronops-queues">
+                                <tr><td colspan="3" class="monitoring-muted">No queue data yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <h3 class="monitoring-section-title">Workers</h3>
+                    <div class="table-responsive five-row-table-wrap">
+                        <table class="table table-condensed monitoring-live-table">
+                            <thead>
+                                <tr><th>Lane</th><th>Status</th><th>PID</th><th>Active</th><th>Heartbeat</th></tr>
+                            </thead>
+                            <tbody id="monitoring-cronops-workers">
+                                <tr><td colspan="5" class="monitoring-muted">No worker data yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div id="monitoring-live-panel" class="monitoring-panel monitoring-live-panel">

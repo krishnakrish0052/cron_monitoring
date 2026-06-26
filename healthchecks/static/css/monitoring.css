@@ -140,6 +140,7 @@ body.page-monitoring .footer {
 }
 
 #monitoring-action-center,
+#monitoring-cronops-panel,
 #monitoring-live-panel,
 #monitoring-projects-panel,
 #monitoring-selected-panel,
@@ -151,6 +152,30 @@ body.page-monitoring .footer {
 .monitoring-action-center {
     border-color: rgba(255, 176, 0, .34);
 }
+
+.monitoring-cronops-panel {
+    border-color: rgba(0, 180, 255, .34);
+}
+
+.monitoring-cronops-cards {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    margin-bottom: 16px;
+}
+
+.monitoring-section-title {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: .08em;
+    margin: 0 0 10px;
+    text-transform: uppercase;
+}
+
+.cronops-card.ok strong { color: var(--green); }
+.cronops-card.warn strong { color: var(--gold); }
+.cronops-card.bad strong { color: var(--red); }
 
 .monitoring-action-grid {
     display: grid;
@@ -192,6 +217,31 @@ body.page-monitoring .footer {
 .action-card.ok strong { color: var(--green); }
 .action-card.warn strong { color: var(--gold); }
 .action-card.bad strong { color: var(--red); }
+
+.monitoring-status.running,
+.monitoring-status.queued,
+.monitoring-status.retrying,
+.monitoring-status.waiting_for_capacity,
+.monitoring-status.deferred_by_pressure {
+    background: rgba(255, 176, 0, .12);
+    border-color: rgba(255, 176, 0, .34);
+    color: var(--gold);
+}
+
+.monitoring-status.success {
+    background: rgba(77, 255, 136, .12);
+    border-color: rgba(77, 255, 136, .34);
+    color: var(--green);
+}
+
+.monitoring-status.failed,
+.monitoring-status.failure,
+.monitoring-status.stale,
+.monitoring-status.missed_sla {
+    background: rgba(255, 77, 109, .12);
+    border-color: rgba(255, 77, 109, .34);
+    color: var(--red);
+}
 
 .monitoring-secondary-panel {
     border-color: rgba(142, 163, 181, .14);

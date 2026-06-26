@@ -84,19 +84,24 @@ def ping_healthchecks_server_health() -> None:
     if now - _last_healthchecks_ping < HEALTHCHECKS_SERVER_PING_SECONDS:
         return
     _last_healthchecks_ping = now
+    close_connections = None
     try:
         if str(HEALTHCHECKS_ROOT) not in sys.path:
             sys.path.insert(0, str(HEALTHCHECKS_ROOT))
         os.environ.setdefault("DJANGO_SETTINGS_MODULE", "hc.settings")
         import django
         from django.apps import apps
+        from django.db import close_old_connections
+        close_connections = close_old_connections
 
         if not apps.ready:
             django.setup()
         from hc.api.models import Check
 
-        checks = Check.objects.filter(name__in=HEALTHCHECKS_SERVER_HEALTH_NAMES)
+        close_connections()
+        checks = list(Check.objects.filter(name__in=HEALTHCHECKS_SERVER_HEALTH_NAMES))
         for check in checks:
+            close_connections()
             check.ping(
                 remote_addr="127.0.0.1",
                 scheme="http",
@@ -108,6 +113,10 @@ def ping_healthchecks_server_health() -> None:
             )
     except Exception as exc:
         print(f"Healthchecks server-health ping failed: {exc}", flush=True)
+    finally:
+        if close_connections:
+            with contextlib.suppress(Exception):
+                close_connections()
 
 
 def prom_query(query: str) -> list[dict[str, Any]]:

@@ -540,6 +540,66 @@
         }).join("");
     }
 
+    function renderCronOpsLanes(data) {
+        var hodl = data.hodl_cronops || {};
+        var queueSummary = hodl.queue_summary || {};
+        var queueRows = hodl.queue_by_queue || [];
+        var workers = hodl.workers || [];
+        var spool = hodl.spool_summary || {};
+        var runningWorkers = workers.filter(function (worker) {
+            return (worker.status || "").toLowerCase() === "running";
+        }).length;
+        var staleWorkers = workers.filter(function (worker) {
+            return (worker.status || "").toLowerCase() === "stale";
+        }).length;
+        var backlog = Number(queueSummary.queued || 0) +
+            Number(queueSummary.waiting_for_capacity || 0) +
+            Number(queueSummary.retrying || 0) +
+            Number(queueSummary.deferred_by_pressure || 0);
+        var cards = [
+            ["Backlog", backlog, backlog ? "warn" : "ok"],
+            ["Running", Number(queueSummary.running || 0), Number(queueSummary.running || 0) ? "ok" : ""],
+            ["Workers", runningWorkers + " live", runningWorkers < 4 ? "warn" : "ok"],
+            ["Stale workers", staleWorkers, staleWorkers ? "warn" : "ok"],
+            ["DB spool", Number(spool.pending || 0) + " pending", Number(spool.pending || 0) || Number(spool.failed || 0) ? "bad" : "ok"],
+            ["Replay failed", Number(spool.failed || 0), Number(spool.failed || 0) ? "bad" : "ok"]
+        ];
+        var cardsEl = $("monitoring-cronops-cards");
+        if (cardsEl) {
+            cardsEl.innerHTML = cards.map(function (card) {
+                return '<div class="live-summary-card cronops-card ' + esc(card[2]) + '">' +
+                    '<span>' + esc(card[0]) + '</span><strong>' + esc(card[1]) + '</strong>' +
+                '</div>';
+            }).join("");
+        }
+        var queuesEl = $("monitoring-cronops-queues");
+        if (queuesEl) {
+            queuesEl.innerHTML = queueRows.length ? queueRows.map(function (row) {
+                return '<tr>' +
+                    '<td><strong>' + esc(row.queue_name || "default") + '</strong></td>' +
+                    '<td><span class="monitoring-status ' + esc(row.status || "") + '">' + esc((row.status || "-").replace(/_/g, " ")) + '</span></td>' +
+                    '<td>' + esc(row.count || 0) + '</td>' +
+                '</tr>';
+            }).join("") : '<tr><td colspan="3" class="monitoring-muted">No queued CronOps triggers.</td></tr>';
+        }
+        var workersEl = $("monitoring-cronops-workers");
+        if (workersEl) {
+            workersEl.innerHTML = workers.length ? workers.slice(0, 16).map(function (worker) {
+                var metadata = worker.metadata || {};
+                var queues = metadata.queues && metadata.queues.length ? metadata.queues.join(", ") : "*";
+                return '<tr>' +
+                    '<td><strong>' + esc(queues) + '</strong></td>' +
+                    '<td><span class="monitoring-status ' + esc(worker.status || "") + '">' + esc(worker.status || "-") + '</span></td>' +
+                    '<td>' + esc(worker.pid || "-") + '</td>' +
+                    '<td>' + esc(worker.active_jobs || 0) + '</td>' +
+                    '<td>' + esc(formatSeconds(worker.heartbeat_age_seconds || 0)) + '</td>' +
+                '</tr>';
+            }).join("") : '<tr><td colspan="5" class="monitoring-muted">No CronOps workers found.</td></tr>';
+        }
+        var updated = $("monitoring-cronops-updated");
+        if (updated) updated.textContent = "Updated " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
+    }
+
     function renderLiveCrons(data) {
         var rows = data.active_crons || [];
         if (!rows.length) {
@@ -681,6 +741,7 @@
                 clearError("monitoring-live-crons");
                 lastLive = data;
                 renderLiveSummary(data);
+                renderCronOpsLanes(data);
                 renderLiveCrons(data);
                 renderRecentRuns(data);
                 renderExternalErrors(data);

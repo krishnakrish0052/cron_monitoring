@@ -443,6 +443,93 @@ def _check_payload(check: Check) -> dict:
     }
 
 
+def _cronops_effective_by_check_code() -> dict[str, dict]:
+    bundle = _fetch_hodl_bundle()
+    hodl = bundle.get("hodl") or {}
+    if "running" not in hodl and "recent" not in hodl:
+        return {}
+
+    job_by_code = {
+        str(code): job_key
+        for job_key, code in HODL_CRON_UUIDS.items()
+        if code
+    }
+    code_by_job = {job_key: code for code, job_key in job_by_code.items()}
+    active_statuses = {
+        "scheduled",
+        "queued",
+        "waiting_for_capacity",
+        "deferred_by_pressure",
+        "running",
+        "retrying",
+    }
+    terminal_success = {"success"}
+    terminal_failure = {"failed", "failure", "timeout", "stale", "missed_sla", "cancelled"}
+
+    def public_status(status: str) -> str:
+        if status in terminal_success:
+            return "up"
+        if status in terminal_failure:
+            return "down"
+        if status in active_statuses:
+            return "grace"
+        return "grace"
+
+    def label(status: str) -> str:
+        return f"cronops {status.replace('_', ' ')}"
+
+    effective: dict[str, dict] = {}
+
+    def add(job_key: str, status: str, item: dict, source: str, rank: int) -> None:
+        code = code_by_job.get(job_key)
+        if not code or not status:
+            return
+        current = effective.get(code)
+        if current and current["rank"] <= rank:
+            return
+        effective[code] = {
+            "rank": rank,
+            "job_key": job_key,
+            "source": source,
+            "raw_status": status,
+            "status": public_status(status),
+            "status_label": label(status),
+            "queue_name": item.get("queue_name", ""),
+            "trigger_id": item.get("trigger_id", ""),
+            "run_id": item.get("run_id", ""),
+            "scheduled_for": item.get("scheduled_for"),
+            "started_at": item.get("started_at"),
+            "updated_at": item.get("updated_at"),
+            "terminal_reason": item.get("terminal_reason", ""),
+        }
+
+    for item in hodl.get("active_triggers", []) or []:
+        add(item.get("job_key") or item.get("function") or "", item.get("effective_status") or item.get("status") or "", item, "cronops_trigger", 10)
+    for item in hodl.get("running", []) or []:
+        add(item.get("job_key") or item.get("function") or "", item.get("status") or "running", item, "cronops_run", 20)
+    for item in hodl.get("recent_triggers", []) or []:
+        add(item.get("job_key") or item.get("function") or "", item.get("effective_status") or item.get("status") or "", item, "cronops_recent_trigger", 40)
+    for item in hodl.get("recent", []) or []:
+        add(item.get("job_key") or item.get("function") or "", item.get("status") or "", item, "cronops_recent_run", 50)
+
+    for value in effective.values():
+        value.pop("rank", None)
+    return effective
+
+
+def _apply_cronops_effective_status(row: dict, effective: dict[str, dict]) -> dict:
+    cronops = effective.get(row["code"])
+    if not cronops:
+        return row
+    updated = dict(row)
+    updated["healthchecks_status"] = row["status"]
+    updated["healthchecks_status_label"] = row["status_label"]
+    updated["status"] = cronops["status"]
+    updated["status_label"] = cronops["status_label"]
+    updated["cronops"] = cronops
+    return updated
+
+
 @login_required
 def monitoring_dashboard(request: AuthenticatedHttpRequest) -> HttpResponse:
     return render(request, "front/monitoring.html", {"page": "monitoring"})
@@ -452,6 +539,7 @@ def monitoring_dashboard(request: AuthenticatedHttpRequest) -> HttpResponse:
 def monitoring_overview(request: AuthenticatedHttpRequest) -> HttpResponse:
     projects = []
     totals = {"total": 0, "up": 0, "down": 0, "grace": 0, "new": 0, "paused": 0}
+    cronops_effective = _cronops_effective_by_check_code()
 
     for project, config in _visible_monitoring_projects(request.profile):
         checks = list(Check.objects.filter(project=project).order_by("name", "id"))
@@ -459,6 +547,8 @@ def monitoring_overview(request: AuthenticatedHttpRequest) -> HttpResponse:
         check_rows = []
         for check in checks:
             row = _check_payload(check)
+            if config["name"] == "HODL-2025":
+                row = _apply_cronops_effective_status(row, cronops_effective)
             summary[row["status"]] = summary.get(row["status"], 0) + 1
             check_rows.append(row)
 
@@ -484,6 +574,7 @@ def monitoring_overview(request: AuthenticatedHttpRequest) -> HttpResponse:
         {
             "projects": projects,
             "totals": totals,
+            "cronops_source": "effective_status" if cronops_effective else "healthchecks",
             "generated_at": current.isoformat(),
             "generated_at_ist": current.astimezone(IST).isoformat(),
         }
