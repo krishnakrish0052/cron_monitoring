@@ -8,7 +8,10 @@ cd /home/ubuntu/hodlbackend2/HODL-2025
 source venv/bin/activate
 
 # Re-register crontab with monitoring wrapper
+DJANGO_SETTINGS_MODULE=config.settings python manage.py crontab remove || true
+python /home/ubuntu/monitoring/django/hodl/manage_monitored.py crontab remove || true
 python /home/ubuntu/monitoring/django/hodl/manage_monitored.py crontab add
+DJANGO_SETTINGS_MODULE=config.settings python manage.py crontab remove || true
 
 # Start Django server
 exec python3 manage.py runserver 0.0.0.0:8001
