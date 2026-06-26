@@ -1,3 +1,28 @@
+const hodlCronopsWorker = (name, queues) => ({
+  name,
+  script: '/home/ubuntu/monitoring/bin/start-hodl-cronops-worker.sh',
+  interpreter: 'bash',
+  cwd: '/home/ubuntu/hodlbackend2/HODL-2025',
+  autorestart: true,
+  watch: false,
+  max_memory_restart: '1G',
+  env: {
+    NODE_ENV: 'production',
+    DJANGO_SETTINGS_MODULE: 'config.settings',
+    HODL_CRONOPS_QUEUE_ENABLED: '1',
+    HODL_CRONOPS_WORKER_QUEUES: queues,
+    HODL_CRONOPS_WORKER_CAPACITY: '1',
+    HODL_CRONOPS_WORKER_POLL_SECONDS: '5',
+    HODL_CRONOPS_RECONCILE_EVERY_SECONDS: '60',
+    HODL_CRONOPS_SPOOL_REPLAY_EVERY_SECONDS: '60',
+    HODL_CRONOPS_SPOOL_REPLAY_LIMIT: '20',
+    HODL_CRONOPS_SPOOL_DIR: '/home/ubuntu/monitoring/runtime/hodl-cronops-spool'
+  },
+  restart_delay: 4000,
+  max_restarts: 10,
+  min_uptime: '10s'
+});
+
 module.exports = {
   apps: [
     {
@@ -34,6 +59,10 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s'
     },
+    hodlCronopsWorker('hodl-cronops-worker-financial', 'financial'),
+    hodlCronopsWorker('hodl-cronops-worker-rank', 'rank'),
+    hodlCronopsWorker('hodl-cronops-worker-analytics', 'analytics'),
+    hodlCronopsWorker('hodl-cronops-worker-maintenance', 'maintenance'),
     {
       name: 'healthchecks-web',
       script: '/home/ubuntu/monitoring/bin/start-healthchecks-web.sh',

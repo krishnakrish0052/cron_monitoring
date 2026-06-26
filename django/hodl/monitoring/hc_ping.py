@@ -4,9 +4,12 @@ Healthchecks.io ping integration for HODL-2025 cron job monitoring.
 
 import functools
 import importlib
+import json
+import os
 import traceback
 
 import requests
+from django.utils import timezone
 from monitoring_common.cron_logs import capture_cron_run
 
 HC_PING_BASE = "http://localhost:9000/ping"
@@ -19,6 +22,7 @@ PING_UUIDS = {
     "liquidity.cron_in.earning_in": "bb1cfdd1-bd68-4ab1-b581-d857b64e5a33",
     "liquidity2.cron.lp2_earning": "0069c15c-91f7-408c-8b2e-a9eaf5f78c74",
     "svr4.cron.svr_earning_4": "0298cd62-ebd8-4943-8db7-d8c1e5de3961",
+    "svr4plus.cron.svr4plus_earning": os.environ.get("HODL_HC_UUID_SVR4PLUS_CRON_SVR4PLUS_EARNING", ""),
     "akasha.cron.distribute_earning": "7526f6ef-ef07-488a-8f10-a5f4f92c5e10",
     # Blockchain fetchers (every 5 min)
     "akita.utils.fetchNFTFromBlockchain": "1b184af8-3366-4bbe-9458-a0e496e2408a",
@@ -57,6 +61,7 @@ FUNCTIONS_TO_PATCH = [
     ("liquidity.cron_in", "earning_in"),
     ("liquidity2.cron", "lp2_earning"),
     ("svr4.cron", "svr_earning_4"),
+    ("svr4plus.cron", "svr4plus_earning"),
     ("akasha.cron", "distribute_earning"),
     ("akita.utils", "fetchNFTFromBlockchain"),
     ("liquidity.utils", "fetchInvestmentsFromBlockchain"),
@@ -85,6 +90,51 @@ FUNCTIONS_TO_PATCH = [
 ]
 
 
+def _cronops_dispatch_status(result):
+    if isinstance(result, dict) and result.get("cronops_status") in {
+        "queued",
+        "already_queued",
+        "spooled_db_unavailable",
+    }:
+        return result.get("cronops_status")
+    return ""
+
+
+def _latest_cronops_run(dotted, pid, started_at):
+    try:
+        from cronops.models import CronRun
+    except Exception:
+        return None
+    try:
+        return (
+            CronRun.objects.select_related("job")
+            .filter(job__key=dotted, pid=pid, started_at__gte=started_at)
+            .order_by("-started_at")
+            .first()
+        )
+    except Exception:
+        return None
+
+
+def _run_status_payload(app_run):
+    if not app_run:
+        return ""
+    return json.dumps(
+        {
+            "run_id": app_run.run_id,
+            "status": app_run.status,
+            "stage": app_run.stage,
+            "message": app_run.message,
+            "business_success": app_run.business_success,
+            "terminal_reason": app_run.terminal_reason,
+            "error_type": app_run.error_type,
+            "error_message": app_run.error_message,
+        },
+        default=str,
+        sort_keys=True,
+    )
+
+
 def monitored_cron(func):
     """Decorator that sends start/success/failure pings to Healthchecks."""
 
@@ -96,6 +146,8 @@ def monitored_cron(func):
             return func(*args, **kwargs)
 
         with capture_cron_run(PROJECT_NAME, dotted, uuid) as run:
+            started_at = timezone.now()
+            pid = os.getpid()
             try:
                 requests.get(f"{HC_PING_BASE}/{uuid}/start", timeout=5)
             except Exception:
@@ -103,6 +155,35 @@ def monitored_cron(func):
 
             try:
                 result = func(*args, **kwargs)
+                dispatch_status = _cronops_dispatch_status(result)
+                if dispatch_status:
+                    payload = json.dumps(result, default=str, sort_keys=True)
+                    if dispatch_status == "spooled_db_unavailable":
+                        run.mark_failure(payload)
+                        try:
+                            requests.post(f"{HC_PING_BASE}/{uuid}/fail", data=payload, timeout=5)
+                        except Exception:
+                            pass
+                        return result
+                    run.mark_warning(payload)
+                    return result
+
+                app_run = _latest_cronops_run(dotted, pid, started_at)
+                if app_run and (
+                    app_run.status in {"deferred", "skipped"}
+                    or app_run.business_success is False
+                ):
+                    run.mark_warning(_run_status_payload(app_run))
+                    return result
+                if app_run and app_run.status in {"failure", "timeout", "stale"}:
+                    error = _run_status_payload(app_run)
+                    run.mark_failure(error)
+                    try:
+                        requests.post(f"{HC_PING_BASE}/{uuid}/fail", data=error, timeout=5)
+                    except Exception:
+                        pass
+                    return result
+
                 run.mark_success()
                 try:
                     requests.get(f"{HC_PING_BASE}/{uuid}", timeout=5)

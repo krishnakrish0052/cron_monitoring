@@ -59,6 +59,7 @@ HODL_CRON_UUIDS = {
     "liquidity.cron_in.earning_in": "bb1cfdd1-bd68-4ab1-b581-d857b64e5a33",
     "liquidity2.cron.lp2_earning": "0069c15c-91f7-408c-8b2e-a9eaf5f78c74",
     "svr4.cron.svr_earning_4": "0298cd62-ebd8-4943-8db7-d8c1e5de3961",
+    "svr4plus.cron.svr4plus_earning": os.environ.get("HODL_HC_UUID_SVR4PLUS_CRON_SVR4PLUS_EARNING", ""),
     "akasha.cron.distribute_earning": "7526f6ef-ef07-488a-8f10-a5f4f92c5e10",
     "akita.utils.fetchNFTFromBlockchain": "1b184af8-3366-4bbe-9458-a0e496e2408a",
     "liquidity.utils.fetchInvestmentsFromBlockchain": "84f6ba40-7cbc-4149-95ff-51adea8964cf",
@@ -118,6 +119,20 @@ def _hodl_run_to_live(run: dict) -> dict:
     }
 
 
+def _hodl_trigger_to_live(trigger: dict) -> dict:
+    job_key = trigger.get("job_key") or trigger.get("function") or ""
+    return {
+        **trigger,
+        "source": "hodl-cronops-queue",
+        "project": "HODL-2025",
+        "function": trigger.get("function") or job_key,
+        "ping_uuid": HODL_CRON_UUIDS.get(job_key),
+        "stage": trigger.get("terminal_reason") or trigger.get("status"),
+        "status": trigger.get("effective_status") or trigger.get("status"),
+        "last_progress_ist": trigger.get("updated_at"),
+    }
+
+
 _HODL_MERGE_CACHE: dict = {"at": 0.0, "value": None}
 _DB_MAINTENANCE_CACHE: dict = {"at": 0.0, "value": None}
 _HODL_MERGE_TTL = float(os.environ.get("HODL_CRONOPS_CACHE_SECONDS", "15"))
@@ -164,6 +179,8 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
 
     active = [_hodl_run_to_live(run) for run in hodl.get("running", [])]
     recent = [_hodl_run_to_live(run) for run in hodl.get("recent", [])]
+    active_triggers = [_hodl_trigger_to_live(trigger) for trigger in hodl.get("active_triggers", [])]
+    recent_triggers = [_hodl_trigger_to_live(trigger) for trigger in hodl.get("recent_triggers", [])]
     orphans = hodl.get("orphans", [])
     slow_q = bundle["slow_q"]
     http_s = bundle["http_s"]
@@ -174,10 +191,10 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
     state["postgres"] = pg if isinstance(pg, dict) and "connections_by_state" in pg else {}
     state.setdefault("active_crons", [])
     state.setdefault("recent_runs", [])
-    state["active_crons"] = active + state["active_crons"]
-    state["recent_runs"] = recent[:20] + state["recent_runs"]
+    state["active_crons"] = active_triggers + active + state["active_crons"]
+    state["recent_runs"] = recent_triggers[:20] + recent[:20] + state["recent_runs"]
     state.setdefault("external_errors", [])
-    for item in active + recent:
+    for item in active_triggers + recent_triggers + active + recent:
         error = item.get("external_error") or item.get("diagnostic")
         if error:
             state["external_errors"].append(
@@ -195,9 +212,19 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
         "status": "ok",
         "jobs": hodl.get("jobs", 0),
         "running": len(active),
+        "active_triggers": len(active_triggers),
         "recent": len(recent),
+        "recent_triggers": len(recent_triggers),
         "orphans": len(orphans),
         "duplicate_skips_24h": hodl.get("duplicate_skips_24h", 0),
+        "resource_deferred_24h": hodl.get("resource_deferred_24h", 0),
+        "failed_24h": hodl.get("failed_24h", 0),
+        "timeouts_24h": hodl.get("timeouts_24h", 0),
+        "stale_count_24h": hodl.get("stale_count_24h", 0),
+        "queue_summary": hodl.get("queue_summary", {}),
+        "queue_by_queue": hodl.get("queue_by_queue", []),
+        "spool_summary": hodl.get("spool_summary", {}),
+        "workers": hodl.get("workers", []),
         "generated_at": hodl.get("generated_at"),
     }
     return state

@@ -253,10 +253,23 @@
         var totals = overview.totals || {};
         var liveTotals = live.totals || {};
         var server = live.server || {};
+        var hodl = live.hodl_cronops || {};
+        var queueSummary = hodl.queue_summary || {};
+        var workers = hodl.workers || [];
+        var spool = hodl.spool_summary || {};
         var down = totals.down || 0;
         var waiting = totals.new || 0;
         var running = liveTotals.running || 0;
         var stale = liveTotals.stale || 0;
+        var queueBacklog = Number(queueSummary.queued || 0) +
+            Number(queueSummary.waiting_for_capacity || 0) +
+            Number(queueSummary.retrying || 0) +
+            Number(queueSummary.deferred_by_pressure || 0);
+        var laneWorkersOnline = workers.filter(function (worker) {
+            return (worker.status || "").toLowerCase() === "running";
+        }).length;
+        var spoolPending = Number(spool.pending || 0);
+        var spoolFailed = Number(spool.failed || 0);
         var externalErrors = (live.external_errors || []).length;
         var orphanCount = (live.orphans || []).length;
         var serverCpu = Number(server.cpu_percent || 0);
@@ -276,6 +289,26 @@
                 value: running,
                 note: running ? "Live observer is tracking active processes." : "No cron currently active.",
                 state: stale ? "warn" : "ok"
+            },
+            {
+                label: "CronOps Queue",
+                value: queueBacklog,
+                note: "Queued " + Number(queueSummary.queued || 0) +
+                    " · waiting " + Number(queueSummary.waiting_for_capacity || 0) +
+                    " · retrying " + Number(queueSummary.retrying || 0),
+                state: queueBacklog >= 20 ? "bad" : queueBacklog ? "warn" : "ok"
+            },
+            {
+                label: "Lane Workers",
+                value: laneWorkersOnline + "/" + workers.length,
+                note: workers.length ? "Dedicated financial/rank/analytics/maintenance lanes." : "No CronOps workers heartbeating.",
+                state: laneWorkersOnline < 4 ? "warn" : "ok"
+            },
+            {
+                label: "DB Spool",
+                value: spoolPending,
+                note: spoolFailed ? spoolFailed + " replay failures need review." : "Local DB-outage trigger buffer.",
+                state: spoolPending || spoolFailed ? "bad" : "ok"
             },
             {
                 label: "External API",
@@ -467,9 +500,23 @@
     function renderLiveSummary(data) {
         var totals = data.totals || {};
         var server = data.server || {};
+        var hodl = data.hodl_cronops || {};
+        var queueSummary = hodl.queue_summary || {};
+        var workers = hodl.workers || [];
+        var spool = hodl.spool_summary || {};
+        var queueBacklog = Number(queueSummary.queued || 0) +
+            Number(queueSummary.waiting_for_capacity || 0) +
+            Number(queueSummary.retrying || 0) +
+            Number(queueSummary.deferred_by_pressure || 0);
+        var laneWorkersOnline = workers.filter(function (worker) {
+            return (worker.status || "").toLowerCase() === "running";
+        }).length;
         $("monitoring-live-clock").textContent = "IST " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
         $("monitoring-live-summary").innerHTML = [
             ["Running crons", totals.running || 0],
+            ["CronOps backlog", queueBacklog],
+            ["Lane workers", laneWorkersOnline + "/" + workers.length],
+            ["DB spool", (spool.pending || 0) + " pending"],
             ["Cron procs", totals.processes || 0],
             ["Stale", totals.stale || 0],
             ["Cron CPU", formatNumber(totals.cpu_percent, 1) + "%"],
@@ -558,6 +605,23 @@
 
     function renderLiveAlerts(data) {
         var alerts = [];
+        var hodl = data.hodl_cronops || {};
+        var workers = hodl.workers || [];
+        var onlineWorkers = workers.filter(function (worker) {
+            return (worker.status || "").toLowerCase() === "running";
+        }).length;
+        var spool = hodl.spool_summary || {};
+        if (workers.length && onlineWorkers < 4) {
+            alerts.push("Only " + onlineWorkers + " of 4 CronOps lane workers are heartbeating");
+        } else if (!workers.length) {
+            alerts.push("No CronOps lane workers are heartbeating");
+        }
+        if (Number(spool.pending || 0) > 0) {
+            alerts.push("CronOps DB-outage spool has " + Number(spool.pending || 0) + " pending trigger(s)");
+        }
+        if (Number(spool.failed || 0) > 0) {
+            alerts.push("CronOps DB-outage spool has " + Number(spool.failed || 0) + " failed replay file(s)");
+        }
         (data.active_crons || []).forEach(function (item) {
             if (item.stuck) alerts.push(item.project + " " + liveCronName(item) + " has no progress for " + formatSeconds(item.seconds_since_progress));
         });
