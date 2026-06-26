@@ -99,6 +99,10 @@ def read_cpu_snapshot() -> dict | None:
         values = Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()[1:]
         numbers = [int(item) for item in values]
         idle = numbers[3] + (numbers[4] if len(numbers) > 4 else 0)
+        steal = numbers[7] if len(numbers) > 7 else 0
+        guest = numbers[8] if len(numbers) > 8 else 0
+        guest_nice = numbers[9] if len(numbers) > 9 else 0
+        idle = idle + steal + guest + guest_nice
         total = sum(numbers)
         sample = {"idle": idle, "total": total}
         percent = None
