@@ -51,16 +51,85 @@ verify_crontab() {
   fi
 }
 
+local_changes_match_remote() {
+  local repo_dir="$1"
+  local remote_ref="$2"
+  local path
+  local -a changed_paths=()
+  local -a untracked_paths=()
+  local -a mismatched_paths=()
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && changed_paths+=("$path")
+  done < <(
+    {
+      git -C "$repo_dir" diff --name-only
+      git -C "$repo_dir" diff --cached --name-only
+    } | sort -u
+  )
+
+  while IFS= read -r path; do
+    [[ -n "$path" ]] && untracked_paths+=("$path")
+  done < <(git -C "$repo_dir" ls-files --others --exclude-standard)
+
+  for path in "${changed_paths[@]}"; do
+    if ! git -C "$repo_dir" diff --quiet "$remote_ref" -- "$path"; then
+      mismatched_paths+=("$path")
+    fi
+  done
+
+  for path in "${untracked_paths[@]}"; do
+    if ! git -C "$repo_dir" cat-file -e "$remote_ref:$path" 2>/dev/null \
+      || ! git -C "$repo_dir" show "$remote_ref:$path" | cmp -s - "$repo_dir/$path"; then
+      mismatched_paths+=("$path")
+    fi
+  done
+
+  if (( ${#mismatched_paths[@]} )); then
+    echo "ERROR: $repo_dir has local files that differ from $remote_ref:" >&2
+    printf '  %s\n' "${mismatched_paths[@]}" >&2
+    return 1
+  fi
+}
+
 update_repo() {
   local repo_dir="$1"
   local branch="$2"
+  local remote_ref="origin/$branch"
+  local current_branch
+  local local_ahead
+  local remote_ahead
+  local stash_ref
 
-  if [[ -n "$(git -C "$repo_dir" status --porcelain --untracked-files=normal)" ]]; then
-    echo "ERROR: $repo_dir has local changes. Commit, move, or deliberately clean them before deployment." >&2
+  run git -C "$repo_dir" fetch origin "$branch"
+
+  current_branch="$(git -C "$repo_dir" branch --show-current)"
+  if [[ "$current_branch" != "$branch" ]]; then
+    if [[ -n "$(git -C "$repo_dir" status --porcelain --untracked-files=normal)" ]]; then
+      echo "ERROR: $repo_dir is on $current_branch with local changes; refusing to switch branches." >&2
+      return 1
+    fi
+    run git -C "$repo_dir" checkout "$branch"
+  fi
+
+  read -r local_ahead remote_ahead < <(git -C "$repo_dir" rev-list --left-right --count "HEAD...$remote_ref")
+  if [[ "$local_ahead" != "0" ]]; then
+    echo "ERROR: $repo_dir has $local_ahead local commit(s) not in $remote_ref. Push or merge them before deployment." >&2
     return 1
   fi
-  run git -C "$repo_dir" fetch origin "$branch"
-  run git -C "$repo_dir" checkout "$branch"
+
+  if [[ -n "$(git -C "$repo_dir" status --porcelain --untracked-files=normal)" ]]; then
+    if [[ "$remote_ahead" == "0" ]] || ! local_changes_match_remote "$repo_dir" "$remote_ref"; then
+      echo "ERROR: $repo_dir has local changes. Commit, move, or deliberately clean them before deployment." >&2
+      return 1
+    fi
+
+    log "Preserving local files already present in $remote_ref"
+    run git -C "$repo_dir" stash push --include-untracked --message "deploy backup before $branch fast-forward $(date -u +%Y%m%dT%H%M%SZ)"
+    stash_ref="$(git -C "$repo_dir" stash list -1 --format='%gd')"
+    echo "Retained local backup in $repo_dir $stash_ref"
+  fi
+
   run git -C "$repo_dir" pull --ff-only origin "$branch"
 }
 
