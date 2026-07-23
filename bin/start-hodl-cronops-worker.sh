@@ -1,12 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
+# The database-outage spool can contain trigger metadata. Create it private
+# from the first filesystem operation; cronops.spool enforces the same mode.
+umask 077
+
 cd /home/ubuntu/hodlbackend2/HODL-2025
 source venv/bin/activate
 
 export DJANGO_SETTINGS_MODULE="config.settings"
 export HODL_CRONOPS_QUEUE_ENABLED="${HODL_CRONOPS_QUEUE_ENABLED:-1}"
 export HODL_CRONOPS_SPOOL_DIR="${HODL_CRONOPS_SPOOL_DIR:-/home/ubuntu/monitoring/runtime/hodl-cronops-spool}"
+export HODL_HEALTHCHECKS_REGISTRY_PATH="${HODL_HEALTHCHECKS_REGISTRY_PATH:-/home/ubuntu/monitoring/runtime/hodl-cronops-checks.json}"
 
 mkdir -p "$HODL_CRONOPS_SPOOL_DIR/pending" "$HODL_CRONOPS_SPOOL_DIR/processed" "$HODL_CRONOPS_SPOOL_DIR/failed"
 

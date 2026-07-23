@@ -87,6 +87,19 @@
                     </div>
                 </div>
             </div>
+            <div class="monitoring-cronops-ingestion">
+                <h3 class="monitoring-section-title">SVR4 Plus Ingestion</h3>
+                <div class="table-responsive five-row-table-wrap">
+                    <table class="table table-condensed monitoring-live-table">
+                        <thead>
+                            <tr><th>Stream</th><th>Cursor</th><th>Finalized tip</th><th>Pending</th><th>Dead letter</th><th>Last result</th></tr>
+                        </thead>
+                        <tbody id="monitoring-svr4plus-ingestion">
+                            <tr><td colspan="6" class="monitoring-muted">No SVR4 Plus ingestion data yet.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
 
         <div id="monitoring-live-panel" class="monitoring-panel monitoring-live-panel">
@@ -125,7 +138,7 @@
             <div class="monitoring-project-head">
                 <div>
                     <h2>Orphan / Untracked Cron Processes</h2>
-                    <p class="monitoring-muted">Cron processes alive on the box that have no matching CronRun record. Legacy = pre-cronops; untracked = wrapper run that never registered.</p>
+                    <p class="monitoring-muted">Cron processes alive on the box with no matching CronRun record after the monitored-wrapper startup grace period. Legacy = direct/pre-cronops; wrapper untracked = monitored wrapper that never registered.</p>
                 </div>
                 <div class="monitoring-head-actions">
                     <span id="monitoring-orphans-count" class="monitoring-muted">0</span>

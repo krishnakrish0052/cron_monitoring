@@ -1,4 +1,4 @@
-const hodlCronopsWorker = (name, queues) => ({
+const hodlCronopsWorker = (name, queues, extraEnv = {}) => ({
   name,
   script: '/home/ubuntu/monitoring/bin/start-hodl-cronops-worker.sh',
   interpreter: 'bash',
@@ -16,7 +16,9 @@ const hodlCronopsWorker = (name, queues) => ({
     HODL_CRONOPS_RECONCILE_EVERY_SECONDS: '60',
     HODL_CRONOPS_SPOOL_REPLAY_EVERY_SECONDS: '60',
     HODL_CRONOPS_SPOOL_REPLAY_LIMIT: '20',
-    HODL_CRONOPS_SPOOL_DIR: '/home/ubuntu/monitoring/runtime/hodl-cronops-spool'
+    HODL_CRONOPS_SPOOL_DIR: '/home/ubuntu/monitoring/runtime/hodl-cronops-spool',
+    HODL_HEALTHCHECKS_REGISTRY_PATH: '/home/ubuntu/monitoring/runtime/hodl-cronops-checks.json',
+    ...extraEnv
   },
   restart_delay: 4000,
   max_restarts: 10,
@@ -53,7 +55,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         DJANGO_SETTINGS_MODULE: 'monitored_settings',
-        PYTHONPATH: '/home/ubuntu/monitoring/django/hodl'
+        PYTHONPATH: '/home/ubuntu/monitoring/django/hodl',
+        HODL_HEALTHCHECKS_REGISTRY_PATH: '/home/ubuntu/monitoring/runtime/hodl-cronops-checks.json'
       },
       restart_delay: 4000,
       max_restarts: 10,
@@ -63,6 +66,10 @@ module.exports = {
     hodlCronopsWorker('hodl-cronops-worker-rank', 'rank'),
     hodlCronopsWorker('hodl-cronops-worker-analytics', 'analytics'),
     hodlCronopsWorker('hodl-cronops-worker-maintenance', 'maintenance'),
+    hodlCronopsWorker('hodl-cronops-worker-fetcher', 'fetcher', {
+      HODL_CRONOPS_QUEUE_LIMIT_FETCHER: '1',
+      HODL_SVR4PLUS_INGESTION_MAX_EVENTS_PER_RUN: '500'
+    }),
     {
       name: 'healthchecks-web',
       script: '/home/ubuntu/monitoring/bin/start-healthchecks-web.sh',
@@ -77,7 +84,8 @@ module.exports = {
         SITE_ROOT: 'https://monitoring.holdonfordearlife.io',
         SITE_NAME: 'HODL Crons Monitoring',
         SITE_LOGO_URL: '/static/img/hodl-monitoring-logo.svg',
-        ALLOWED_HOSTS: 'monitoring.holdonfordearlife.io,43.204.86.173,localhost,127.0.0.1'
+        ALLOWED_HOSTS: 'monitoring.holdonfordearlife.io,43.204.86.173,localhost,127.0.0.1',
+        HODL_HEALTHCHECKS_REGISTRY_PATH: '/home/ubuntu/monitoring/runtime/hodl-cronops-checks.json'
       },
       restart_delay: 4000,
       max_restarts: 10,

@@ -29,6 +29,8 @@ MAX_TRACE_EVENTS = int(os.environ.get("MONITORING_CRON_MAX_TRACE_EVENTS", "8000"
 MAX_RECENT_EVENTS = int(os.environ.get("MONITORING_CRON_RECENT_EVENTS", "80"))
 TRACE_ENABLED = os.environ.get("MONITORING_CRON_TRACE", "1") != "0"
 IST = ZoneInfo("Asia/Kolkata")
+PRIVATE_DIR_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
 WARNING_ONLY_EXTERNAL_TYPES = {
     "etherscan_paid_tier_required",
 }
@@ -40,13 +42,26 @@ _SQL_OP_TABLE = re.compile(
 _SECRET_QUERY_KEYS = {
     "apikey",
     "api_key",
+    "authorization",
+    "bearer",
+    "client_secret",
+    "cookie",
+    "credential",
     "key",
     "token",
     "access_token",
     "password",
+    "private_key",
     "secret",
+    "sessionid",
     "signature",
 }
+_URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s'\"<>]+", re.IGNORECASE)
+_KEY_VALUE_RE = re.compile(
+    r"(?i)\b(api[_-]?key|authorization|credential|password|private[_-]?key|secret|token)"
+    r"(\s*[:=]\s*)([^\s,&;]+)"
+)
+_BEARER_RE = re.compile(r"(?i)\b(bearer\s+)[^\s,;]+")
 
 
 def _utcnow() -> datetime:
@@ -68,8 +83,20 @@ def _safe(value: str) -> str:
 
 def _write_json(path: Path, payload: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.write_text(json.dumps(_sanitize_value(payload), indent=2, sort_keys=True), encoding="utf-8")
+    try:
+        tmp.chmod(PRIVATE_FILE_MODE)
+    except OSError:
+        pass
     tmp.replace(path)
+
+
+def _ensure_private_dir(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
+    try:
+        path.chmod(PRIVATE_DIR_MODE)
+    except OSError:
+        pass
 
 
 def _sanitize_url(url: str) -> str:
@@ -78,13 +105,43 @@ def _sanitize_url(url: str) -> str:
     except Exception:
         return str(url)[:500]
 
-    query = []
-    for key, value in parse_qsl(parts.query, keep_blank_values=True):
-        if key.lower() in _SECRET_QUERY_KEYS:
-            query.append((key, "***"))
-        else:
-            query.append((key, value[:180]))
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))[:700]
+    try:
+        hostname = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        hostname = ""
+        port = None
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    netloc = f"{hostname}:{port}" if hostname and port is not None else hostname
+    query = [(key, "***") for key, _ in parse_qsl(parts.query, keep_blank_values=True)]
+    return urlunsplit((parts.scheme, netloc, parts.path, urlencode(query), ""))[:700]
+
+
+def _is_sensitive_key(value: object) -> bool:
+    key = str(value).strip().lower().replace("-", "_")
+    compact = key.replace("_", "")
+    return key in _SECRET_QUERY_KEYS or compact in {item.replace("_", "") for item in _SECRET_QUERY_KEYS}
+
+
+def _sanitize_text(value: object) -> str:
+    text = "" if value is None else str(value)
+    text = _URL_RE.sub(lambda match: _sanitize_url(match.group(0)), text)
+    text = _KEY_VALUE_RE.sub(lambda match: f"{match.group(1)}{match.group(2)}***", text)
+    return _BEARER_RE.sub(lambda match: f"{match.group(1)}***", text)
+
+
+def _sanitize_value(value: object):
+    if isinstance(value, dict):
+        return {
+            str(key): "***" if _is_sensitive_key(key) else _sanitize_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_sanitize_value(item) for item in value]
+    if isinstance(value, str):
+        return _sanitize_text(value)
+    return value
 
 
 def _summarize_sql(sql: str) -> dict:
@@ -263,7 +320,8 @@ class _Tee:
         if not isinstance(data, str):
             data = str(data)
         self.original.write(data)
-        for chunk in data.splitlines(True):
+        safe_data = _sanitize_text(data)
+        for chunk in safe_data.splitlines(True):
             if self._at_line_start and chunk.strip():
                 self.log_file.write(f"[{self.label}] ")
             self.log_file.write(chunk)
@@ -279,6 +337,11 @@ class _Tee:
 
     def isatty(self):
         return False
+
+
+class _SanitizingFormatter(logging.Formatter):
+    def format(self, record):
+        return _sanitize_text(super().format(record))
 
 
 class CronRunCapture:
@@ -353,10 +416,17 @@ class CronRunCapture:
         }
 
     def __enter__(self):
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        self.heartbeat_dir.mkdir(parents=True, exist_ok=True)
+        _ensure_private_dir(LOG_ROOT)
+        _ensure_private_dir(self.run_dir)
+        _ensure_private_dir(RUNTIME_ROOT)
+        _ensure_private_dir(self.heartbeat_dir)
         self._log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
         self._events_file = self.events_path.open("a", encoding="utf-8", buffering=1)
+        for path in (self.log_path, self.events_path):
+            try:
+                path.chmod(PRIVATE_FILE_MODE)
+            except OSError:
+                pass
         self._log_file.progress_callback = self._record_output
         self._stdout = sys.stdout
         self._stderr = sys.stderr
@@ -365,7 +435,7 @@ class CronRunCapture:
 
         self._handler = logging.StreamHandler(self._log_file)
         self._handler.setFormatter(
-            logging.Formatter("[logging] %(asctime)s %(levelname)s %(name)s: %(message)s")
+            _SanitizingFormatter("[logging] %(asctime)s %(levelname)s %(name)s: %(message)s")
         )
         logging.getLogger().addHandler(self._handler)
         self._enter_db_wrappers()
@@ -447,8 +517,9 @@ class CronRunCapture:
                     classification = _classify_external_payload(str(url), parsed)
                 return response
             except Exception as exc:
-                response_summary = {"error": str(exc)[:500]}
-                classification = {"type": "http_exception", "severity": "error", "message": str(exc)[:500]}
+                error = _sanitize_text(exc)[:500]
+                response_summary = {"error": error}
+                classification = {"type": "http_exception", "severity": "error", "message": error}
                 raise
             finally:
                 elapsed = time.monotonic() - started
@@ -541,11 +612,11 @@ class CronRunCapture:
             ok = True
             return result
         except Exception as exc:
-            error = str(exc)
+            error = _sanitize_text(exc)
             raise
         finally:
             elapsed = time.monotonic() - started
-            sql_text = " ".join(str(sql).split())
+            sql_text = _sanitize_text(" ".join(str(sql).split()))
             fingerprint = hashlib.sha1(sql_text.encode("utf-8", errors="ignore")).hexdigest()[:12]
             event = {
                 "at_utc": _iso(_utcnow()),
@@ -578,11 +649,12 @@ class CronRunCapture:
             )
 
     def _record_output(self, text: str, label: str):
+        safe_text = _sanitize_text(text)
         with self._lock:
-            self._last_output = text[-1000:]
+            self._last_output = safe_text[-1000:]
             self._last_progress_at = _utcnow()
-            self._stage = f"{label}: {text[:120]}"
-        self._emit_event(label, "info", text[:500], {"stream": label})
+            self._stage = f"{label}: {safe_text[:120]}"
+        self._emit_event(label, "info", safe_text[:500], {"stream": label})
 
     def _emit_event(self, event_type: str, severity: str, message: str, data: dict | None = None):
         current = _utcnow()
@@ -592,8 +664,8 @@ class CronRunCapture:
             "elapsed_seconds": self.duration_seconds,
             "type": event_type,
             "severity": severity,
-            "message": message[:1000],
-            "data": data or {},
+            "message": _sanitize_text(message)[:1000],
+            "data": _sanitize_value(data or {}),
         }
         with self._lock:
             if self._event_count >= MAX_EVENTS and event_type not in ("run_end", "failure", "http_response"):
@@ -671,9 +743,10 @@ class CronRunCapture:
         self._emit_event("run_success", "success", "Cron run completed successfully")
 
     def mark_failure(self, error: str):
+        safe_error = _sanitize_text(error)[-4000:]
         with self._lock:
             self.status = "failure"
-            self.error = error[-4000:]
+            self.error = safe_error
             self._stage = "failed"
         self._emit_event(
             "failure",
@@ -681,10 +754,10 @@ class CronRunCapture:
             "Cron function raised an exception. This is app cron code, not a ping failure.",
             {"traceback": self.error, "external_error": self._external_error},
         )
-        if self._log_file and error:
+        if self._log_file and safe_error:
             self._log_file.write("[monitoring] ERROR\n")
-            self._log_file.write(error)
-            if not error.endswith("\n"):
+            self._log_file.write(safe_error)
+            if not safe_error.endswith("\n"):
                 self._log_file.write("\n")
 
     def is_warning_only_error(self, error: str = "") -> bool:
@@ -702,9 +775,10 @@ class CronRunCapture:
         )
 
     def mark_warning(self, error: str):
+        safe_error = _sanitize_text(error)[-4000:]
         with self._lock:
             self.status = "warning"
-            self.error = error[-4000:]
+            self.error = safe_error
             self._stage = "external api warning"
         self._emit_event(
             "warning",
@@ -718,9 +792,9 @@ class CronRunCapture:
                 "Known external API/plan issue. Cron did not complete its external fetch, "
                 "but this is not counted as an app-code failure.\n"
             )
-            if error:
-                self._log_file.write(error)
-                if not error.endswith("\n"):
+            if safe_error:
+                self._log_file.write(safe_error)
+                if not safe_error.endswith("\n"):
                     self._log_file.write("\n")
 
     def __exit__(self, exc_type, exc, tb):

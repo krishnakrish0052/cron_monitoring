@@ -27,6 +27,7 @@ from hc.accounts.http import AuthenticatedHttpRequest
 from hc.accounts.models import Profile, Project
 from hc.api.models import Check, Flip, prepare_durations
 from hc.front.views import _get_check_for_user
+from healthchecks_custom.hodl_registry import load_registry_jobs, uuid_for_job as hodl_check_uuid_for_job
 from healthchecks_custom.metrics import render_monitoring_metrics
 from monitoring_common.cron_logs import iter_runs_for_uuid, read_run_events, read_run_log
 from monitoring_observer.collector import read_state
@@ -55,47 +56,15 @@ LIVE_EVENT_LIMIT = int(os.environ.get("MONITORING_LIVE_EVENT_LIMIT", "5"))
 DB_MAINTENANCE_CACHE_SECONDS = float(os.environ.get("DB_MAINTENANCE_CACHE_SECONDS", "60"))
 IST = ZoneInfo("Asia/Kolkata")
 
-HODL_CRON_UUIDS = {
-    "liquidity.cron_in.earning_in": "bb1cfdd1-bd68-4ab1-b581-d857b64e5a33",
-    "liquidity2.cron.lp2_earning": "0069c15c-91f7-408c-8b2e-a9eaf5f78c74",
-    "svr4.cron.svr_earning_4": "0298cd62-ebd8-4943-8db7-d8c1e5de3961",
-    "svr4plus.cron.svr4plus_earning": os.environ.get("HODL_HC_UUID_SVR4PLUS_CRON_SVR4PLUS_EARNING", ""),
-    "akasha.cron.distribute_earning": "7526f6ef-ef07-488a-8f10-a5f4f92c5e10",
-    "akita.utils.fetchNFTFromBlockchain": "1b184af8-3366-4bbe-9458-a0e496e2408a",
-    "liquidity.utils.fetchInvestmentsFromBlockchain": "84f6ba40-7cbc-4149-95ff-51adea8964cf",
-    "user.service.fetchYbaFee": "76f2b38b-aa6a-4e7b-944d-f5478f19ebdd",
-    "truebreath.utils.fetchTruebreatheBlockchain": "9012a580-a5e2-410c-bf28-9811fb0b8c9b",
-    "truebreath.utils2.fetchTruebreatheBase": "493c5494-bffa-4289-b89a-601b8e0b031c",
-    "akasha.utils.fetch_deposite.fetch_deposites": "847cfcce-6e78-4916-bb5b-262df6241cd5",
-    "akasha.utils.fetch_super_nodes.fetch_super_nodes": "a29c56d5-054e-4827-b231-e5b923ad2686",
-    "svr4.utils.fetch_svr_lp.fetchSvrLp": "45f22d15-fbea-45cb-acca-5b7b13a4093c",
-    "svr4.utils.fetch_svr_package_base.fetch_svr_pkg_base": "3c813025-839a-449a-a095-6891ad6ef889",
-    "svr4.utils.fetch_svr_package_bsc.fetchSovereignBlockchain": "e360e926-d391-492a-97e9-d328a440937c",
-    "analytics.cron.calculate_analytics_lp_vol": "e2b8463d-7b43-4100-94e9-3fa135e454d6",
-    "analytics.cron.calculate_analytics_lp_level_vol": "23cafe3d-ed35-471d-a2db-42d016ce8a3f",
-    "analytics.cron.calculate_analytics_lp_level": "de896294-c631-4547-b659-d60832868cd6",
-    "analytics.cron2.calculate_analytics_lp_vol": "df66c9ea-d48f-4567-b38b-5c1bc69f1fbc",
-    "analytics.cron2.calculate_analytics_lp_level_vol": "b7853048-5d54-40ea-944c-6ca1af5b8673",
-    "analytics.cron2.calculate_analytics_lp_level": "fce7513d-6f2c-4757-8fb3-701d4d683895",
-    "user.cron.delete_logs": "a7f02dd3-924d-4b6b-8cea-24301f218237",
-    "user.cron.mark_korean": "9241fa2e-d091-4741-a104-7b16c4af6657",
-    "sovereign.cron.update_rank": "beb278d9-d6da-4341-b1ad-a8c08348c232",
-    "svr4.cron.update_rank_svr4_parallel": "63c88700-b0c7-4cc1-81ef-0fe294f9a1d1",
-    "svr4.cron.svr4_total_business_aggregate": "b659c4c5-1cd7-45d9-9c1f-adc83ec51c69",
-    "blackcard.cron.add_blackcard_users": "0c65cc53-3fae-413f-aef9-5775e63eac69",
-    "akasha.cron.update_ak1111_price": "ad8bcfd4-9b13-4c9a-8213-0ffab1b09547",
-    "akasha.cron.mint_deposit": "25f779fa-cc5a-4d86-8bc9-a9b9f4bb89b1",
-}
-
-
 def _monitoring_config() -> list[dict[str, str]]:
     return list(getattr(settings, "MONITORING_PROJECTS", MONITORING_PROJECTS))
 
 
 def _local_only(request: HttpRequest) -> bool:
-    host = request.META.get("REMOTE_ADDR", "")
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
-    return host in ("127.0.0.1", "::1") or forwarded in ("127.0.0.1", "::1")
+    # This endpoint is consumed by the local Prometheus process.  Do not
+    # trust X-Forwarded-For here: a client can supply it unless the proxy has
+    # explicitly stripped and rebuilt the header.
+    return request.META.get("REMOTE_ADDR", "") in ("127.0.0.1", "::1")
 
 
 def _fetch_json(url: str, timeout: float = 3) -> dict:
@@ -113,7 +82,7 @@ def _hodl_run_to_live(run: dict) -> dict:
         "source": "hodl-cronops",
         "project": "HODL-2025",
         "function": run.get("function") or job_key,
-        "ping_uuid": HODL_CRON_UUIDS.get(job_key),
+        "ping_uuid": hodl_check_uuid_for_job(job_key),
         "stage": run.get("stage") or run.get("message"),
         "last_progress_ist": run.get("last_progress_at"),
     }
@@ -126,7 +95,7 @@ def _hodl_trigger_to_live(trigger: dict) -> dict:
         "source": "hodl-cronops-queue",
         "project": "HODL-2025",
         "function": trigger.get("function") or job_key,
-        "ping_uuid": HODL_CRON_UUIDS.get(job_key),
+        "ping_uuid": hodl_check_uuid_for_job(job_key),
         "stage": trigger.get("terminal_reason") or trigger.get("status"),
         "status": trigger.get("effective_status") or trigger.get("status"),
         "last_progress_ist": trigger.get("updated_at"),
@@ -219,12 +188,14 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
         "duplicate_skips_24h": hodl.get("duplicate_skips_24h", 0),
         "resource_deferred_24h": hodl.get("resource_deferred_24h", 0),
         "failed_24h": hodl.get("failed_24h", 0),
+        "degraded_24h": hodl.get("degraded_24h", 0),
         "timeouts_24h": hodl.get("timeouts_24h", 0),
         "stale_count_24h": hodl.get("stale_count_24h", 0),
         "queue_summary": hodl.get("queue_summary", {}),
         "queue_by_queue": hodl.get("queue_by_queue", []),
         "spool_summary": hodl.get("spool_summary", {}),
         "workers": hodl.get("workers", []),
+        "svr4plus_ingestion": hodl.get("svr4plus_ingestion", {}),
         "generated_at": hodl.get("generated_at"),
     }
     return state
@@ -450,9 +421,9 @@ def _cronops_effective_by_check_code() -> dict[str, dict]:
         return {}
 
     job_by_code = {
-        str(code): job_key
-        for job_key, code in HODL_CRON_UUIDS.items()
-        if code
+        str(record["uuid"]): job_key
+        for job_key, record in load_registry_jobs().items()
+        if record.get("uuid")
     }
     code_by_job = {job_key: code for code, job_key in job_by_code.items()}
     active_statuses = {
@@ -464,7 +435,7 @@ def _cronops_effective_by_check_code() -> dict[str, dict]:
         "retrying",
     }
     terminal_success = {"success"}
-    terminal_failure = {"failed", "failure", "timeout", "stale", "missed_sla", "cancelled"}
+    terminal_failure = {"failed", "failure", "timeout", "stale", "missed_sla", "cancelled", "degraded"}
 
     def public_status(status: str) -> str:
         if status in terminal_success:
@@ -506,11 +477,23 @@ def _cronops_effective_by_check_code() -> dict[str, dict]:
     for item in hodl.get("active_triggers", []) or []:
         add(item.get("job_key") or item.get("function") or "", item.get("effective_status") or item.get("status") or "", item, "cronops_trigger", 10)
     for item in hodl.get("running", []) or []:
-        add(item.get("job_key") or item.get("function") or "", item.get("status") or "running", item, "cronops_run", 20)
+        add(
+            item.get("job_key") or item.get("function") or "",
+            item.get("effective_status") or item.get("status") or "running",
+            item,
+            "cronops_run",
+            20,
+        )
     for item in hodl.get("recent_triggers", []) or []:
         add(item.get("job_key") or item.get("function") or "", item.get("effective_status") or item.get("status") or "", item, "cronops_recent_trigger", 40)
     for item in hodl.get("recent", []) or []:
-        add(item.get("job_key") or item.get("function") or "", item.get("status") or "", item, "cronops_recent_run", 50)
+        add(
+            item.get("job_key") or item.get("function") or "",
+            item.get("effective_status") or item.get("status") or "",
+            item,
+            "cronops_recent_run",
+            50,
+        )
 
     for value in effective.values():
         value.pop("rank", None)
@@ -530,6 +513,14 @@ def _apply_cronops_effective_status(row: dict, effective: dict[str, dict]) -> di
     return updated
 
 
+def _status_summary(rows: list[dict]) -> dict[str, int]:
+    summary = {"total": len(rows), "up": 0, "down": 0, "grace": 0, "new": 0, "paused": 0}
+    for row in rows:
+        status = row.get("status", "new")
+        summary[status] = summary.get(status, 0) + 1
+    return summary
+
+
 @login_required
 def monitoring_dashboard(request: AuthenticatedHttpRequest) -> HttpResponse:
     return render(request, "front/monitoring.html", {"page": "monitoring"})
@@ -540,17 +531,28 @@ def monitoring_overview(request: AuthenticatedHttpRequest) -> HttpResponse:
     projects = []
     totals = {"total": 0, "up": 0, "down": 0, "grace": 0, "new": 0, "paused": 0}
     cronops_effective = _cronops_effective_by_check_code()
+    hodl_cronops_summary = None
 
     for project, config in _visible_monitoring_projects(request.profile):
         checks = list(Check.objects.filter(project=project).order_by("name", "id"))
-        summary = {"total": len(checks), "up": 0, "down": 0, "grace": 0, "new": 0, "paused": 0}
         check_rows = []
+        external_rows = []
+        cronops_rows = []
+        is_hodl = config["name"] == "HODL-2025"
         for check in checks:
-            row = _check_payload(check)
-            if config["name"] == "HODL-2025":
+            raw_row = _check_payload(check)
+            external_rows.append(raw_row)
+            row = raw_row
+            if is_hodl:
                 row = _apply_cronops_effective_status(row, cronops_effective)
-            summary[row["status"]] = summary.get(row["status"], 0) + 1
+                if "hodl-cronops" in check.tags_list():
+                    cronops_rows.append(row)
             check_rows.append(row)
+
+        summary = _status_summary(external_rows)
+        cronops_summary = _status_summary(cronops_rows) if is_hodl else None
+        if is_hodl:
+            hodl_cronops_summary = cronops_summary
 
         status_order = {"down": 0, "grace": 1, "up": 2, "new": 3, "paused": 4}
         check_rows.sort(key=lambda row: (status_order.get(row["status"], 5), row["name"]))
@@ -564,6 +566,8 @@ def monitoring_overview(request: AuthenticatedHttpRequest) -> HttpResponse:
                 "code": str(project.code),
                 "health": _fetch_json(config["health_url"]),
                 "summary": summary,
+                "external_summary": summary,
+                "cronops_summary": cronops_summary,
                 "checks": check_rows,
                 "checks_url": reverse("hc-checks", args=[project.code]),
             }
@@ -574,6 +578,7 @@ def monitoring_overview(request: AuthenticatedHttpRequest) -> HttpResponse:
         {
             "projects": projects,
             "totals": totals,
+            "hodl_cronops_summary": hodl_cronops_summary,
             "cronops_source": "effective_status" if cronops_effective else "healthchecks",
             "generated_at": current.isoformat(),
             "generated_at_ist": current.astimezone(IST).isoformat(),

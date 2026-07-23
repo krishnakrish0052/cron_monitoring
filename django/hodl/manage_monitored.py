@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/home/ubuntu/hodlbackend2/HODL-2025/venv/bin/python
 """Wrapper manage.py for HODL-2025 that uses monitored_settings."""
 import os
 import sys

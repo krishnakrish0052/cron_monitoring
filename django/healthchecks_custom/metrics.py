@@ -38,10 +38,13 @@ def render_monitoring_metrics(project_configs: list[dict[str, str]]) -> HttpResp
         ("hodl_cronops_spool_files", "HODL cronops DB-outage spool files by state."),
         ("hodl_cronops_resource_deferred_24h", "HODL cronops resource deferred runs in 24h."),
         ("hodl_cronops_failed_24h", "HODL cronops failed runs in 24h."),
+        ("hodl_cronops_degraded_24h", "HODL cronops business-degraded runs in 24h."),
         ("hodl_cronops_timeouts_24h", "HODL cronops timeout runs in 24h."),
         ("hodl_cronops_stale_count_24h", "HODL cronops stale runs in 24h."),
         ("hodl_cronops_workers", "HODL cronops workers by status."),
         ("hodl_cronops_workers_by_queue", "HODL cronops workers by queue lane and status."),
+        ("hodl_svr4plus_ingestion_events", "SVR4 Plus durable ingestion events by stream and status."),
+        ("hodl_svr4plus_ingestion_stream", "SVR4 Plus durable ingestion stream state."),
     )
 
     lines = []
@@ -106,6 +109,7 @@ def render_monitoring_metrics(project_configs: list[dict[str, str]]) -> HttpResp
         for key, metric in (
             ("resource_deferred_24h", "hodl_cronops_resource_deferred_24h"),
             ("failed_24h", "hodl_cronops_failed_24h"),
+            ("degraded_24h", "hodl_cronops_degraded_24h"),
             ("timeouts_24h", "hodl_cronops_timeouts_24h"),
             ("stale_count_24h", "hodl_cronops_stale_count_24h"),
         ):
@@ -123,6 +127,20 @@ def render_monitoring_metrics(project_configs: list[dict[str, str]]) -> HttpResp
         for (queue, status), count in worker_lane_counts.items():
             lines.append(
                 f'hodl_cronops_workers_by_queue{{queue="{esc(queue)}",status="{esc(status)}"}} {count}\n'
+            )
+        ingestion = hodl.get("svr4plus_ingestion") or {}
+        for stream in ingestion.get("streams", []) or []:
+            key = str(stream.get("key") or "unknown")
+            for status in ("pending", "processed", "ignored", "dead_letter"):
+                value = stream.get(status, 0) or 0
+                if isinstance(value, (int, float)):
+                    lines.append(
+                        f'hodl_svr4plus_ingestion_events{{stream="{esc(key)}",status="{status}"}} {value}\n'
+                    )
+            lines.append(
+                f'hodl_svr4plus_ingestion_stream{{stream="{esc(key)}",'
+                f'status="{esc(str(stream.get("status") or "unknown"))}",'
+                f'lease_active="{str(bool(stream.get("lease_active"))).lower()}"}} 1\n'
             )
 
     return HttpResponse(lines, content_type="text/plain; version=0.0.4")

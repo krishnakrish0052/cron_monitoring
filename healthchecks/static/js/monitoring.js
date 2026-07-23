@@ -204,15 +204,29 @@
         container.innerHTML = events.slice(-30).reverse().map(eventHtml).join("");
     }
 
-    function renderSummary(totals) {
-        var items = [
-            ["Total", totals.total || 0, "info"],
-            ["Up", totals.up || 0, "ok"],
-            ["Down", totals.down || 0, "bad"],
-            ["Late", totals.grace || 0, "warn"],
-            ["New", totals.new || 0, ""],
-            ["Paused", totals.paused || 0, ""],
-        ];
+    function renderSummary(totals, hodlCronOps) {
+        var items;
+        if (hodlCronOps && hodlCronOps.total != null) {
+            items = [
+                ["HODL CronOps", hodlCronOps.total || 0, "info"],
+                ["HODL Up", hodlCronOps.up || 0, "ok"],
+                ["HODL Down", hodlCronOps.down || 0, (hodlCronOps.down || 0) ? "bad" : "ok"],
+                ["HODL Late", hodlCronOps.grace || 0, (hodlCronOps.grace || 0) ? "warn" : "ok"],
+                ["HODL New", hodlCronOps.new || 0, ""],
+                ["External Checks", totals.total || 0, "info"],
+                ["External Down", totals.down || 0, (totals.down || 0) ? "bad" : "ok"],
+                ["External Paused", totals.paused || 0, ""],
+            ];
+        } else {
+            items = [
+                ["Total", totals.total || 0, "info"],
+                ["Up", totals.up || 0, "ok"],
+                ["Down", totals.down || 0, "bad"],
+                ["Late", totals.grace || 0, "warn"],
+                ["New", totals.new || 0, ""],
+                ["Paused", totals.paused || 0, ""],
+            ];
+        }
         $("monitoring-summary").innerHTML = items.map(function (item) {
             return '<div class="monitoring-card ' + esc(item[2]) + '"><div class="label-text">' +
                 esc(item[0]) + '</div><div class="value">' + esc(item[1]) + '</div></div>';
@@ -251,14 +265,15 @@
         var overview = lastOverview || {};
         var live = lastLive || {};
         var totals = overview.totals || {};
+        var hodlCronOps = overview.hodl_cronops_summary || {};
         var liveTotals = live.totals || {};
         var server = live.server || {};
         var hodl = live.hodl_cronops || {};
         var queueSummary = hodl.queue_summary || {};
         var workers = hodl.workers || [];
         var spool = hodl.spool_summary || {};
-        var down = totals.down || 0;
-        var waiting = totals.new || 0;
+        var down = hodlCronOps.total != null ? (hodlCronOps.down || 0) : (totals.down || 0);
+        var waiting = hodlCronOps.total != null ? (hodlCronOps.new || 0) : (totals.new || 0);
         var running = liveTotals.running || 0;
         var stale = liveTotals.stale || 0;
         var queueBacklog = Number(queueSummary.queued || 0) +
@@ -279,7 +294,7 @@
         var updatedAt = live.generated_at_ist || overview.generated_at_ist || new Date().toISOString();
         var cards = [
             {
-                label: "Failed / Down",
+                label: "HODL Failed / Down",
                 value: down,
                 note: down ? "Open Cron Tables filtered by Down." : "No down checks right now.",
                 state: down ? "bad" : "ok"
@@ -329,7 +344,7 @@
                 state: pressure >= 85 ? "bad" : pressure >= 70 ? "warn" : "ok"
             },
             {
-                label: "Waiting First Run",
+                label: "HODL Waiting First Run",
                 value: waiting,
                 note: waiting ? "Scheduled jobs that have not reached first due time." : "No waiting-first-run checks.",
                 state: waiting ? "warn" : "ok"
@@ -400,10 +415,17 @@
 
             var health = project.health || {};
             var healthLabel = health.status || "unknown";
+            var cronopsSummary = project.cronops_summary;
+            var cronopsText = "";
+            if (cronopsSummary && cronopsSummary.total != null) {
+                cronopsText = '<span class="monitoring-status ' + ((cronopsSummary.down || 0) ? "down" : "up") + '">' +
+                    'CronOps ' + esc(cronopsSummary.total) + ': ' + esc(cronopsSummary.up || 0) + ' up · ' + esc(cronopsSummary.down || 0) + ' down · ' + esc(cronopsSummary.new || 0) + ' new</span>';
+            }
             return '<div class="monitoring-panel project-panel">' +
                 '<div class="monitoring-project-head">' +
                     '<h2>' + esc(project.name) + '</h2>' +
-                    '<span class="monitoring-status ' + (healthLabel === "ok" ? "up" : "down") + '">' + esc(healthLabel) + '</span>' +
+                    '<div class="monitoring-head-actions">' + cronopsText +
+                    '<span class="monitoring-status ' + (healthLabel === "ok" ? "up" : "down") + '">External ' + esc(healthLabel) + '</span></div>' +
                 '</div>' +
                 '<div class="table-responsive five-row-table-wrap"><table class="table table-condensed monitoring-table">' +
                     '<thead><tr><th>Status</th><th>Name</th><th>Schedule</th><th>Last ping</th><th>Duration</th><th></th><th></th><th></th></tr></thead>' +
@@ -467,7 +489,7 @@
             .then(function (data) {
                 clearError("monitoring-projects");
                 lastOverview = data;
-                renderSummary(data.totals || {});
+                renderSummary(data.totals || {}, data.hodl_cronops_summary || null);
                 renderProjects(data.projects || []);
                 renderActionCenter();
             })
@@ -546,6 +568,8 @@
         var queueRows = hodl.queue_by_queue || [];
         var workers = hodl.workers || [];
         var spool = hodl.spool_summary || {};
+        var ingestion = hodl.svr4plus_ingestion || {};
+        var unresolvedIngestion = Number(ingestion.pending || 0) + Number(ingestion.dead_letter || 0);
         var runningWorkers = workers.filter(function (worker) {
             return (worker.status || "").toLowerCase() === "running";
         }).length;
@@ -562,7 +586,8 @@
             ["Workers", runningWorkers + " live", runningWorkers < 4 ? "warn" : "ok"],
             ["Stale workers", staleWorkers, staleWorkers ? "warn" : "ok"],
             ["DB spool", Number(spool.pending || 0) + " pending", Number(spool.pending || 0) || Number(spool.failed || 0) ? "bad" : "ok"],
-            ["Replay failed", Number(spool.failed || 0), Number(spool.failed || 0) ? "bad" : "ok"]
+            ["Replay failed", Number(spool.failed || 0), Number(spool.failed || 0) ? "bad" : "ok"],
+            ["SVR4+ review", unresolvedIngestion, unresolvedIngestion ? "warn" : "ok"]
         ];
         var cardsEl = $("monitoring-cronops-cards");
         if (cardsEl) {
@@ -598,6 +623,24 @@
         }
         var updated = $("monitoring-cronops-updated");
         if (updated) updated.textContent = "Updated " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
+        var ingestionEl = $("monitoring-svr4plus-ingestion");
+        if (ingestionEl) {
+            var streams = ingestion.streams || [];
+            ingestionEl.innerHTML = streams.length ? streams.map(function (stream) {
+                var result = stream.last_error_type || (stream.last_success_at ? "success" : "waiting");
+                return '<tr>' +
+                    '<td><strong>' + esc(stream.key || "-") + '</strong><br><small>' + esc(stream.chain_id || "-") + '</small></td>' +
+                    '<td>' + esc(stream.cursor_block != null ? stream.cursor_block : "-") + '</td>' +
+                    '<td>' + esc(stream.finalized_tip != null ? stream.finalized_tip : "-") + '</td>' +
+                    '<td>' + esc(stream.pending || 0) + '</td>' +
+                    '<td>' + esc(stream.dead_letter || 0) + '</td>' +
+                    '<td><span class="monitoring-status ' + esc(stream.last_error_type ? "down" : "up") + '">' + esc(result) + '</span>' +
+                    '<br><small>' + esc(stream.last_success_at ? formatIST(stream.last_success_at) : formatIST(stream.last_scan_at)) + '</small></td>' +
+                '</tr>';
+            }).join("") : '<tr><td colspan="6" class="monitoring-muted">' +
+                esc(ingestion.status === "unavailable" ? "Ingestion data is unavailable: " + (ingestion.error || "unknown error") : "No SVR4 Plus ingestion streams have run yet.") +
+                '</td></tr>';
+        }
     }
 
     function renderLiveCrons(data) {
@@ -681,6 +724,7 @@
             return (worker.status || "").toLowerCase() === "running";
         }).length;
         var spool = hodl.spool_summary || {};
+        var ingestion = hodl.svr4plus_ingestion || {};
         if (workers.length && onlineWorkers < 4) {
             alerts.push("Only " + onlineWorkers + " of 4 CronOps lane workers are heartbeating");
         } else if (!workers.length) {
@@ -691,6 +735,9 @@
         }
         if (Number(spool.failed || 0) > 0) {
             alerts.push("CronOps DB-outage spool has " + Number(spool.failed || 0) + " failed replay file(s)");
+        }
+        if (Number(ingestion.pending || 0) > 0 || Number(ingestion.dead_letter || 0) > 0) {
+            alerts.push("SVR4 Plus ingestion needs review: " + Number(ingestion.pending || 0) + " pending, " + Number(ingestion.dead_letter || 0) + " quarantined");
         }
         (data.active_crons || []).forEach(function (item) {
             if (item.stuck) alerts.push(item.project + " " + liveCronName(item) + " has no progress for " + formatSeconds(item.seconds_since_progress));
