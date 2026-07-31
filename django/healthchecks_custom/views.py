@@ -180,6 +180,7 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
     state["hodl_cronops"] = {
         "status": "ok",
         "jobs": hodl.get("jobs", 0),
+        "job_statuses": hodl.get("job_statuses", []),
         "running": len(active),
         "active_triggers": len(active_triggers),
         "recent": len(recent),
@@ -474,6 +475,14 @@ def _cronops_effective_by_check_code() -> dict[str, dict]:
             "terminal_reason": item.get("terminal_reason", ""),
         }
 
+    for item in hodl.get("job_statuses", []) or []:
+        add(
+            item.get("job_key") or item.get("function") or "",
+            item.get("effective_status") or item.get("status") or "",
+            item,
+            "cronops_job_status",
+            5,
+        )
     for item in hodl.get("active_triggers", []) or []:
         add(item.get("job_key") or item.get("function") or "", item.get("effective_status") or item.get("status") or "", item, "cronops_trigger", 10)
     for item in hodl.get("running", []) or []:
