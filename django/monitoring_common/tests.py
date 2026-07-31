@@ -1,11 +1,14 @@
+import json
 from io import StringIO
 import os
 import stat
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from monitoring_common import cron_logs
 from monitoring_common.cron_logs import _Tee, _ensure_private_dir, _sanitize_text, _sanitize_value, _write_json
 
 
@@ -45,3 +48,25 @@ class CronLogRedactionTests(SimpleTestCase):
 
             self.assertEqual(stat.S_IMODE(os.stat(directory).st_mode), 0o700)
             self.assertEqual(stat.S_IMODE(os.stat(artifact).st_mode), 0o600)
+
+
+class CronLogRecentIndexTests(SimpleTestCase):
+    def test_capture_publishes_a_single_latest_run_index(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with (
+                patch.object(cron_logs, "LOG_ROOT", root / "logs"),
+                patch.object(cron_logs, "RUNTIME_ROOT", root / "runtime"),
+                patch.object(cron_logs, "RECENT_RUN_ROOT", root / "runtime" / "recent-runs"),
+            ):
+                capture = cron_logs.CronRunCapture(
+                    "HODL-2025",
+                    "sample.cron.job",
+                    "00000000-0000-4000-8000-000000000001",
+                )
+                capture._publish_recent_run()
+
+                payload = json.loads(capture.recent_run_path.read_text(encoding="utf-8"))
+
+            self.assertEqual(payload["function"], "sample.cron.job")
+            self.assertEqual(payload["status"], "running")

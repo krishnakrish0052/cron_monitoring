@@ -20,14 +20,23 @@ from zoneinfo import ZoneInfo
 
 LOG_ROOT = Path(os.environ.get("MONITORING_CRON_LOG_ROOT", "/home/ubuntu/monitoring/logs/crons"))
 RUNTIME_ROOT = Path(os.environ.get("MONITORING_RUNTIME_ROOT", "/home/ubuntu/monitoring/runtime/observer"))
+RECENT_RUN_ROOT = Path(
+    os.environ.get("MONITORING_RECENT_RUN_ROOT", str(RUNTIME_ROOT / "recent-runs"))
+)
 MAX_LOG_BYTES = int(os.environ.get("MONITORING_CRON_LOG_TAIL_BYTES", "200000"))
 HEARTBEAT_INTERVAL_SECONDS = float(os.environ.get("MONITORING_HEARTBEAT_INTERVAL_SECONDS", "1"))
 SLOW_QUERY_SECONDS = float(os.environ.get("MONITORING_SLOW_QUERY_SECONDS", "2"))
 STUCK_SECONDS = float(os.environ.get("MONITORING_STUCK_SECONDS", "180"))
-MAX_EVENTS = int(os.environ.get("MONITORING_CRON_MAX_EVENTS", "30000"))
-MAX_TRACE_EVENTS = int(os.environ.get("MONITORING_CRON_MAX_TRACE_EVENTS", "8000"))
+MAX_EVENTS = int(os.environ.get("MONITORING_CRON_MAX_EVENTS", "2000"))
+MAX_TRACE_EVENTS = int(os.environ.get("MONITORING_CRON_MAX_TRACE_EVENTS", "1000"))
 MAX_RECENT_EVENTS = int(os.environ.get("MONITORING_CRON_RECENT_EVENTS", "80"))
-TRACE_ENABLED = os.environ.get("MONITORING_CRON_TRACE", "1") != "0"
+TRACE_ENABLED = os.environ.get("MONITORING_CRON_TRACE", "0").lower() in {"1", "true", "yes", "on"}
+CAPTURE_DB_QUERY_EVENTS = os.environ.get("MONITORING_CRON_CAPTURE_DB_QUERY_EVENTS", "0").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 IST = ZoneInfo("Asia/Kolkata")
 PRIVATE_DIR_MODE = 0o700
 PRIVATE_FILE_MODE = 0o600
@@ -82,7 +91,7 @@ def _safe(value: str) -> str:
 
 
 def _write_json(path: Path, payload: dict) -> None:
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
     tmp.write_text(json.dumps(_sanitize_value(payload), indent=2, sort_keys=True), encoding="utf-8")
     try:
         tmp.chmod(PRIVATE_FILE_MODE)
@@ -356,6 +365,7 @@ class CronRunCapture:
         self.run_id = f"{self.started_at.strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}-{uuid4().hex[:8]}"
         self.run_dir = LOG_ROOT / _safe(project) / _safe(ping_uuid)
         self.heartbeat_dir = RUNTIME_ROOT / "heartbeats" / _safe(project) / _safe(ping_uuid)
+        self.recent_run_path = RECENT_RUN_ROOT / _safe(project) / f"{_safe(ping_uuid)}.json"
         self.log_path = self.run_dir / f"{self.run_id}.log"
         self.meta_path = self.run_dir / f"{self.run_id}.json"
         self.events_path = self.run_dir / f"{self.run_id}.events.jsonl"
@@ -415,11 +425,19 @@ class CronRunCapture:
             "external_error": self._external_error,
         }
 
+    def _publish_recent_run(self):
+        """Keep the dashboard's latest-run lookup bounded to one file per cron."""
+        with contextlib.suppress(Exception):
+            _ensure_private_dir(self.recent_run_path.parent)
+            _write_json(self.recent_run_path, self.metadata())
+
     def __enter__(self):
         _ensure_private_dir(LOG_ROOT)
         _ensure_private_dir(self.run_dir)
         _ensure_private_dir(RUNTIME_ROOT)
         _ensure_private_dir(self.heartbeat_dir)
+        _ensure_private_dir(RECENT_RUN_ROOT)
+        _ensure_private_dir(self.recent_run_path.parent)
         self._log_file = self.log_path.open("a", encoding="utf-8", buffering=1)
         self._events_file = self.events_path.open("a", encoding="utf-8", buffering=1)
         for path in (self.log_path, self.events_path):
@@ -449,6 +467,7 @@ class CronRunCapture:
         )
         self._emit_event("run_start", "info", "Cron run started")
         _write_json(self.meta_path, self.metadata())
+        self._publish_recent_run()
         self._write_heartbeat()
         self._heartbeat_thread = threading.Thread(
             target=self._heartbeat_loop,
@@ -641,12 +660,13 @@ class CronRunCapture:
                             f"[monitoring] SLOW_DB_QUERY duration={elapsed:.3f}s "
                             f"fingerprint={fingerprint} sql={sql_text[:300]}\n"
                         )
-            self._emit_event(
-                "db_query",
-                "warning" if elapsed >= SLOW_QUERY_SECONDS or not ok else "debug",
-                f"DB {event['operation']} {event.get('table') or ''} {elapsed:.3f}s".strip(),
-                event,
-            )
+            if CAPTURE_DB_QUERY_EVENTS or elapsed >= SLOW_QUERY_SECONDS or not ok:
+                self._emit_event(
+                    "db_query",
+                    "warning" if elapsed >= SLOW_QUERY_SECONDS or not ok else "debug",
+                    f"DB {event['operation']} {event.get('table') or ''} {elapsed:.3f}s".strip(),
+                    event,
+                )
 
     def _record_output(self, text: str, label: str):
         safe_text = _sanitize_text(text)
@@ -815,6 +835,7 @@ class CronRunCapture:
         self._emit_event("run_end", self.status, f"Cron run ended with status {self.status}", self.metadata())
 
         _write_json(self.meta_path, self.metadata())
+        self._publish_recent_run()
         self._write_heartbeat()
 
         if self._original_request:

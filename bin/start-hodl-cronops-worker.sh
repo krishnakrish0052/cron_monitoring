@@ -21,6 +21,8 @@ reconcile_seconds="${HODL_CRONOPS_RECONCILE_EVERY_SECONDS:-60}"
 spool_seconds="${HODL_CRONOPS_SPOOL_REPLAY_EVERY_SECONDS:-60}"
 spool_limit="${HODL_CRONOPS_SPOOL_REPLAY_LIMIT:-20}"
 queues="${HODL_CRONOPS_WORKER_QUEUES:-}"
+auto_reconcile="${HODL_CRONOPS_AUTO_RECONCILE:-0}"
+spool_replay_enabled="${HODL_CRONOPS_SPOOL_REPLAY_ENABLED:-0}"
 
 args=(
   manage.py
@@ -39,5 +41,13 @@ for queue in "${queue_list[@]}"; do
     args+=(--queue "$queue")
   fi
 done
+
+if [[ ! "${auto_reconcile,,}" =~ ^(1|true|yes|on)$ ]]; then
+  args+=(--no-auto-reconcile)
+fi
+
+if [[ ! "${spool_replay_enabled,,}" =~ ^(1|true|yes|on)$ ]]; then
+  args+=(--no-spool-replay)
+fi
 
 exec python "${args[@]}"

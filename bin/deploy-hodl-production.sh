@@ -7,10 +7,17 @@ HEALTHCHECKS_DIR="$MONITORING_DIR/healthchecks"
 RELOAD_CRONTABS="$MONITORING_DIR/bin/reload-crontabs.sh"
 EXPECTED_MONITORED_CRONS="${HODL_EXPECTED_MONITORED_CRONS:-31}"
 CHECK_ONLY=0
+START_STOPPED_WORKERS="${HODL_CRONOPS_START_STOPPED_WORKERS:-0}"
 
-if [[ "${1:-}" == "--check" ]]; then
-  CHECK_ONLY=1
-fi
+case "${1:-}" in
+  "") ;;
+  --check) CHECK_ONLY=1 ;;
+  --start-stopped-workers) START_STOPPED_WORKERS=1 ;;
+  *)
+    echo "Usage: $0 [--check|--start-stopped-workers]" >&2
+    exit 2
+    ;;
+esac
 
 if [[ "$(id -u)" == "0" ]]; then
   echo "ERROR: do not run this deploy script as root. Use the ubuntu deploy user." >&2
@@ -203,6 +210,74 @@ restart_pm2_app() {
   run pm2 startOrRestart "$MONITORING_DIR/ecosystem.config.js" --only "$name" --update-env
 }
 
+is_truthy() {
+  [[ "${1,,}" =~ ^(1|true|yes|on)$ ]]
+}
+
+pm2_app_state() {
+  local name="$1"
+  local state
+
+  if ! state="$(pm2 jlist | node -e '
+const apps = JSON.parse(require("fs").readFileSync(0, "utf8"));
+const name = process.argv[1];
+const app = apps.find((candidate) => candidate.name === name);
+process.stdout.write(app ? String((app.pm2_env || {}).status || "unknown") : "missing");
+' "$name")"; then
+    echo "ERROR: could not determine PM2 state for $name." >&2
+    return 2
+  fi
+  printf '%s\n' "$state"
+}
+
+worker_queue_state() {
+  local queue_name="$1"
+  local state
+
+  if ! state="$(QUEUE_NAME="$queue_name" python manage.py shell -c '
+import os
+from cronops.models import CronTrigger
+
+active = CronTrigger.objects.filter(
+    queue_name=os.environ["QUEUE_NAME"],
+    status=CronTrigger.STATUS_RUNNING,
+).exists()
+print("active" if active else "idle")
+' 2>&1)"; then
+    echo "ERROR: could not determine active work for queue=$queue_name: $state" >&2
+    return 2
+  fi
+  printf '%s\n' "$state"
+}
+
+restart_hodl_worker_if_idle() {
+  local process_name="$1"
+  local queue_name="$2"
+  local state
+  local pm2_state
+
+  state="$(worker_queue_state "$queue_name")" || return $?
+  if [[ "$state" == "active" ]]; then
+    echo "Leaving $process_name online: queue=$queue_name has an active trigger."
+    return 0
+  fi
+  if [[ "$state" != "idle" ]]; then
+    echo "ERROR: unexpected queue state for $queue_name: $state" >&2
+    return 2
+  fi
+
+  pm2_state="$(pm2_app_state "$process_name")" || return $?
+  if [[ "$pm2_state" == "stopped" || "$pm2_state" == "missing" ]]; then
+    if ! is_truthy "$START_STOPPED_WORKERS"; then
+      echo "Leaving $process_name $pm2_state: set HODL_CRONOPS_START_STOPPED_WORKERS=1 or use --start-stopped-workers after auditing its backlog."
+      return 0
+    fi
+    echo "Explicitly starting $process_name from $pm2_state state."
+  fi
+
+  restart_pm2_app "$process_name"
+}
+
 log "Entering HODL repo"
 cd "$HODL_DIR"
 
@@ -257,12 +332,15 @@ verify_crontab
 
 refresh_monitoring_assets
 
+log "Pruning expired raw monitoring cron logs"
+run "$MONITORING_DIR/bin/prune-cron-logs.sh" --apply
+
 log "Restarting HODL PM2 processes by name"
-restart_pm2_app "hodl-cronops-worker-financial"
-restart_pm2_app "hodl-cronops-worker-rank"
-restart_pm2_app "hodl-cronops-worker-analytics"
-restart_pm2_app "hodl-cronops-worker-maintenance"
-restart_pm2_app "hodl-cronops-worker-fetcher"
+restart_hodl_worker_if_idle "hodl-cronops-worker-financial" "financial"
+restart_hodl_worker_if_idle "hodl-cronops-worker-rank" "rank"
+restart_hodl_worker_if_idle "hodl-cronops-worker-analytics" "analytics"
+restart_hodl_worker_if_idle "hodl-cronops-worker-maintenance" "maintenance"
+restart_hodl_worker_if_idle "hodl-cronops-worker-fetcher" "fetcher"
 restart_pm2_app "healthchecks-web"
 run pm2 save
 

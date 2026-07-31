@@ -13,6 +13,8 @@ const hodlCronopsWorker = (name, queues, extraEnv = {}) => ({
     HODL_CRONOPS_WORKER_QUEUES: queues,
     HODL_CRONOPS_WORKER_CAPACITY: '1',
     HODL_CRONOPS_WORKER_POLL_SECONDS: '5',
+    HODL_CRONOPS_AUTO_RECONCILE: '0',
+    HODL_CRONOPS_SPOOL_REPLAY_ENABLED: '0',
     HODL_CRONOPS_RECONCILE_EVERY_SECONDS: '60',
     HODL_CRONOPS_SPOOL_REPLAY_EVERY_SECONDS: '60',
     HODL_CRONOPS_SPOOL_REPLAY_LIMIT: '20',
@@ -22,7 +24,9 @@ const hodlCronopsWorker = (name, queues, extraEnv = {}) => ({
   },
   restart_delay: 4000,
   max_restarts: 10,
-  min_uptime: '10s'
+  min_uptime: '10s',
+  // The deploy script skips active lanes; this protects against a restart race.
+  kill_timeout: 13 * 60 * 60 * 1000
 });
 
 module.exports = {
@@ -65,7 +69,10 @@ module.exports = {
     hodlCronopsWorker('hodl-cronops-worker-financial', 'financial'),
     hodlCronopsWorker('hodl-cronops-worker-rank', 'rank'),
     hodlCronopsWorker('hodl-cronops-worker-analytics', 'analytics'),
-    hodlCronopsWorker('hodl-cronops-worker-maintenance', 'maintenance'),
+    hodlCronopsWorker('hodl-cronops-worker-maintenance', 'maintenance', {
+      HODL_CRONOPS_AUTO_RECONCILE: '1',
+      HODL_CRONOPS_SPOOL_REPLAY_ENABLED: '1'
+    }),
     hodlCronopsWorker('hodl-cronops-worker-fetcher', 'fetcher', {
       HODL_CRONOPS_QUEUE_LIMIT_FETCHER: '1',
       HODL_SVR4PLUS_INGESTION_MAX_EVENTS_PER_RUN: '500'

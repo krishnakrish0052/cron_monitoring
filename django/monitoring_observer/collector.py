@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 MONITORING_ROOT = Path(os.environ.get("MONITORING_ROOT", "/home/ubuntu/monitoring"))
 RUNTIME_ROOT = Path(os.environ.get("MONITORING_RUNTIME_ROOT", str(MONITORING_ROOT / "runtime/observer")))
 LOG_ROOT = Path(os.environ.get("MONITORING_CRON_LOG_ROOT", str(MONITORING_ROOT / "logs/crons")))
+RECENT_RUN_ROOT = Path(os.environ.get("MONITORING_RECENT_RUN_ROOT", str(RUNTIME_ROOT / "recent-runs")))
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://127.0.0.1:9090")
 STALE_SECONDS = int(os.environ.get("MONITORING_OBSERVER_STALE_SECONDS", "90"))
 IST = ZoneInfo("Asia/Kolkata")
@@ -23,10 +24,12 @@ HEARTBEAT_SCAN_WINDOW_SECONDS = int(os.environ.get("MONITORING_HEARTBEAT_SCAN_WI
 HEARTBEAT_SCAN_LIMIT = int(os.environ.get("MONITORING_HEARTBEAT_SCAN_LIMIT", "500"))
 HEARTBEAT_RETENTION_SECONDS = int(os.environ.get("MONITORING_HEARTBEAT_RETENTION_SECONDS", "300"))
 RECENT_RUN_SCAN_LIMIT = int(os.environ.get("MONITORING_RECENT_RUN_SCAN_LIMIT", "250"))
+RECENT_EVENT_TAIL_BYTES = int(os.environ.get("MONITORING_RECENT_EVENT_TAIL_BYTES", "200000"))
 INLINE_COLLECT_FALLBACK = os.environ.get("MONITORING_ALLOW_INLINE_COLLECT", "0") == "1"
 _PREVIOUS_CPU = None
 _RECENT_CACHE_AT = 0.0
 _RECENT_CACHE = []
+_RECENT_INDEX_BOOTSTRAPPED = False
 
 
 def utcnow() -> datetime:
@@ -45,6 +48,80 @@ def load_json(path: Path) -> dict | None:
     with contextlib.suppress(Exception):
         return json.loads(path.read_text(encoding="utf-8"))
     return None
+
+
+def _safe_component(value: object) -> str:
+    cleaned = "".join(char if char.isalnum() or char in "_.-" else "_" for char in str(value).strip())
+    return cleaned[:120] or "unknown"
+
+
+def _write_private_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    with contextlib.suppress(OSError):
+        path.parent.chmod(0o700)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    with contextlib.suppress(OSError):
+        tmp.chmod(0o600)
+    tmp.replace(path)
+
+
+def _latest_metadata_path(run_dir: Path) -> Path | None:
+    """Run ids begin with UTC timestamps, so lexical order is chronological."""
+    try:
+        names = [
+            entry.name
+            for entry in os.scandir(run_dir)
+            if entry.is_file() and entry.name.endswith(".json") and not entry.name.startswith(".")
+        ]
+    except OSError:
+        return None
+    return run_dir / max(names) if names else None
+
+
+def _recent_run_index_marker() -> Path:
+    return RECENT_RUN_ROOT / ".bootstrap-v1.json"
+
+
+def ensure_recent_run_index() -> None:
+    """Build the dashboard index once, then rely on CronRunCapture to keep it current."""
+    global _RECENT_INDEX_BOOTSTRAPPED
+    if _RECENT_INDEX_BOOTSTRAPPED:
+        return
+    _RECENT_INDEX_BOOTSTRAPPED = True
+
+    marker = _recent_run_index_marker()
+    try:
+        RECENT_RUN_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if marker.exists():
+            return
+
+        indexed = 0
+        for project_dir in LOG_ROOT.iterdir():
+            if not project_dir.is_dir():
+                continue
+            for run_dir in project_dir.iterdir():
+                if not run_dir.is_dir():
+                    continue
+                meta_path = _latest_metadata_path(run_dir)
+                if not meta_path:
+                    continue
+                payload = load_json(meta_path)
+                if not payload:
+                    continue
+                project = _safe_component(payload.get("project") or project_dir.name)
+                ping_uuid = _safe_component(payload.get("ping_uuid") or run_dir.name)
+                index_path = RECENT_RUN_ROOT / project / f"{ping_uuid}.json"
+                with contextlib.suppress(OSError):
+                    if index_path.exists() and index_path.stat().st_mtime >= meta_path.stat().st_mtime:
+                        continue
+                _write_private_json(index_path, payload)
+                indexed += 1
+        _write_private_json(marker, {"indexed": indexed, "generated_at_utc": iso(utcnow())})
+    except OSError:
+        # The observer remains useful without recent history. Do not repeatedly
+        # scan the full raw log tree if its runtime directory is unavailable.
+        return
 
 
 def pid_exists(pid: int | None) -> bool:
@@ -84,7 +161,11 @@ def read_events(path_value: str | None, limit: int = 20) -> list[dict]:
     if not path.exists():
         return []
     with contextlib.suppress(Exception):
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        with path.open("rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - RECENT_EVENT_TAIL_BYTES))
+            lines = handle.read().decode("utf-8", errors="replace").splitlines()
         events = []
         for line in lines[-limit:]:
             with contextlib.suppress(Exception):
@@ -188,8 +269,9 @@ def recent_runs(limit: int = 25) -> list[dict]:
     if _RECENT_CACHE and current - _RECENT_CACHE_AT < 10:
         return _RECENT_CACHE[:limit]
 
+    ensure_recent_run_index()
     paths = sorted(
-        LOG_ROOT.glob("*/*/*.json"),
+        RECENT_RUN_ROOT.glob("*/*.json"),
         key=lambda item: item.stat().st_mtime if item.exists() else 0,
         reverse=True,
     )[:RECENT_RUN_SCAN_LIMIT]
