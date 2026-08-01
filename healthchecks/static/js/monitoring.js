@@ -99,6 +99,22 @@
         return Math.floor(seconds / 3600) + "h " + Math.floor((seconds % 3600) / 60) + "m";
     }
 
+    function cronopsWorkerCoverage(hodl) {
+        var coverage = (hodl.worker_coverage || []);
+        var running = coverage.filter(function (lane) {
+            return (lane.status || "").toLowerCase() === "running";
+        });
+        var unavailable = coverage.filter(function (lane) {
+            return (lane.status || "").toLowerCase() !== "running";
+        });
+        return {
+            total: coverage.length,
+            running: running.length,
+            unavailable: unavailable,
+            unavailableNames: unavailable.map(function (lane) { return lane.queue_name || "unknown"; })
+        };
+    }
+
     function statsFromValues(values) {
         if (!values.length) return {latest: null, min: null, max: null, avg: null};
         var total = values.reduce(function (sum, value) { return sum + value; }, 0);
@@ -271,6 +287,7 @@
         var hodl = live.hodl_cronops || {};
         var queueSummary = hodl.queue_summary || {};
         var workers = hodl.workers || [];
+        var workerCoverage = cronopsWorkerCoverage(hodl);
         var spool = hodl.spool_summary || {};
         var down = hodlCronOps.total != null ? (hodlCronOps.down || 0) : (totals.down || 0);
         var waiting = hodlCronOps.total != null ? (hodlCronOps.new || 0) : (totals.new || 0);
@@ -280,9 +297,6 @@
             Number(queueSummary.waiting_for_capacity || 0) +
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
-        var laneWorkersOnline = workers.filter(function (worker) {
-            return (worker.status || "").toLowerCase() === "running";
-        }).length;
         var spoolPending = Number(spool.pending || 0);
         var spoolFailed = Number(spool.failed || 0);
         var externalErrors = (live.external_errors || []).length;
@@ -315,9 +329,11 @@
             },
             {
                 label: "Lane Workers",
-                value: laneWorkersOnline + "/" + workers.length,
-                note: workers.length ? "Dedicated financial/rank/analytics/maintenance lanes." : "No CronOps workers heartbeating.",
-                state: laneWorkersOnline < 4 ? "warn" : "ok"
+                value: workerCoverage.running + "/" + workerCoverage.total,
+                note: workerCoverage.total ?
+                    (workerCoverage.unavailable.length ? "Missing: " + workerCoverage.unavailableNames.join(", ") : "All expected CronOps lanes are live.") :
+                    "CronOps worker coverage is unavailable.",
+                state: workerCoverage.unavailable.length || !workerCoverage.total ? "warn" : "ok"
             },
             {
                 label: "DB Spool",
@@ -533,21 +549,19 @@
         var hodl = data.hodl_cronops || {};
         var queueSummary = hodl.queue_summary || {};
         var workers = hodl.workers || [];
+        var workerCoverage = cronopsWorkerCoverage(hodl);
         var spool = hodl.spool_summary || {};
         var queueBacklog = Number(queueSummary.queued || 0) +
             Number(queueSummary.waiting_for_capacity || 0) +
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
-        var laneWorkersOnline = workers.filter(function (worker) {
-            return (worker.status || "").toLowerCase() === "running";
-        }).length;
         $("monitoring-live-clock").textContent = "IST " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
         var updatedEl = $("monitoring-live-updated");
         if (updatedEl) updatedEl.textContent = "Last updated: " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
         $("monitoring-live-summary").innerHTML = [
             ["Running crons", totals.running || 0],
             ["CronOps backlog", queueBacklog],
-            ["Lane workers", laneWorkersOnline + "/" + workers.length],
+            ["Lane workers", workerCoverage.running + "/" + workerCoverage.total],
             ["DB spool", (spool.pending || 0) + " pending"],
             ["Cron procs", totals.processes || 0],
             ["Stale", totals.stale || 0],
@@ -567,12 +581,11 @@
         var queueSummary = hodl.queue_summary || {};
         var queueRows = hodl.queue_by_queue || [];
         var workers = hodl.workers || [];
+        var workerCoverage = cronopsWorkerCoverage(hodl);
         var spool = hodl.spool_summary || {};
         var ingestion = hodl.svr4plus_ingestion || {};
         var unresolvedIngestion = Number(ingestion.pending || 0) + Number(ingestion.dead_letter || 0);
-        var runningWorkers = workers.filter(function (worker) {
-            return (worker.status || "").toLowerCase() === "running";
-        }).length;
+        var runningWorkers = workerCoverage.running;
         var staleWorkers = workers.filter(function (worker) {
             return (worker.status || "").toLowerCase() === "stale";
         }).length;
@@ -583,7 +596,7 @@
         var cards = [
             ["Backlog", backlog, backlog ? "warn" : "ok"],
             ["Running", Number(queueSummary.running || 0), Number(queueSummary.running || 0) ? "ok" : ""],
-            ["Workers", runningWorkers + " live", runningWorkers < 4 ? "warn" : "ok"],
+            ["Workers", runningWorkers + "/" + workerCoverage.total, workerCoverage.unavailable.length || !workerCoverage.total ? "warn" : "ok"],
             ["Stale workers", staleWorkers, staleWorkers ? "warn" : "ok"],
             ["DB spool", Number(spool.pending || 0) + " pending", Number(spool.pending || 0) || Number(spool.failed || 0) ? "bad" : "ok"],
             ["Replay failed", Number(spool.failed || 0), Number(spool.failed || 0) ? "bad" : "ok"],
@@ -719,16 +732,13 @@
     function renderLiveAlerts(data) {
         var alerts = [];
         var hodl = data.hodl_cronops || {};
-        var workers = hodl.workers || [];
-        var onlineWorkers = workers.filter(function (worker) {
-            return (worker.status || "").toLowerCase() === "running";
-        }).length;
+        var workerCoverage = cronopsWorkerCoverage(hodl);
         var spool = hodl.spool_summary || {};
         var ingestion = hodl.svr4plus_ingestion || {};
-        if (workers.length && onlineWorkers < 4) {
-            alerts.push("Only " + onlineWorkers + " of 4 CronOps lane workers are heartbeating");
-        } else if (!workers.length) {
-            alerts.push("No CronOps lane workers are heartbeating");
+        if (!workerCoverage.total) {
+            alerts.push("CronOps worker coverage is unavailable");
+        } else if (workerCoverage.unavailable.length) {
+            alerts.push("CronOps workers missing: " + workerCoverage.unavailableNames.join(", "));
         }
         if (Number(spool.pending || 0) > 0) {
             alerts.push("CronOps DB-outage spool has " + Number(spool.pending || 0) + " pending trigger(s)");

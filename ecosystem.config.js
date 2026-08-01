@@ -69,10 +69,11 @@ module.exports = {
     hodlCronopsWorker('hodl-cronops-worker-financial', 'financial'),
     hodlCronopsWorker('hodl-cronops-worker-rank', 'rank'),
     hodlCronopsWorker('hodl-cronops-worker-analytics', 'analytics'),
-    hodlCronopsWorker('hodl-cronops-worker-maintenance', 'maintenance', {
+    hodlCronopsWorker('hodl-cronops-reconciler', 'reconciler', {
       HODL_CRONOPS_AUTO_RECONCILE: '1',
       HODL_CRONOPS_SPOOL_REPLAY_ENABLED: '1'
     }),
+    hodlCronopsWorker('hodl-cronops-worker-maintenance', 'maintenance'),
     hodlCronopsWorker('hodl-cronops-worker-fetcher', 'fetcher', {
       HODL_CRONOPS_QUEUE_LIMIT_FETCHER: '1',
       HODL_SVR4PLUS_INGESTION_MAX_EVENTS_PER_RUN: '500'

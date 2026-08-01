@@ -6,6 +6,7 @@ MONITORING_DIR="/home/ubuntu/monitoring"
 HEALTHCHECKS_DIR="$MONITORING_DIR/healthchecks"
 RELOAD_CRONTABS="$MONITORING_DIR/bin/reload-crontabs.sh"
 EXPECTED_MONITORED_CRONS="${HODL_EXPECTED_MONITORED_CRONS:-31}"
+GIT_FETCH_TIMEOUT_SECONDS="${HODL_GIT_FETCH_TIMEOUT_SECONDS:-60}"
 CHECK_ONLY=0
 START_STOPPED_WORKERS="${HODL_CRONOPS_START_STOPPED_WORKERS:-0}"
 
@@ -24,6 +25,11 @@ if [[ "$(id -u)" == "0" ]]; then
   exit 1
 fi
 
+if ! [[ "$GIT_FETCH_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: HODL_GIT_FETCH_TIMEOUT_SECONDS must be a positive whole number." >&2
+  exit 2
+fi
+
 log() {
   echo
   echo "==> $*"
@@ -32,6 +38,19 @@ log() {
 run() {
   echo "+ $*"
   "$@"
+}
+
+fetch_repo() {
+  local repo_dir="$1"
+  local branch="$2"
+
+  echo "+ GIT_TERMINAL_PROMPT=0 timeout $GIT_FETCH_TIMEOUT_SECONDS git -C $repo_dir fetch --prune origin $branch"
+  if ! GIT_TERMINAL_PROMPT=0 timeout "$GIT_FETCH_TIMEOUT_SECONDS" \
+    git -C "$repo_dir" fetch --prune origin "$branch"; then
+    echo "ERROR: could not fetch $repo_dir/$branch within ${GIT_FETCH_TIMEOUT_SECONDS}s." >&2
+    echo "Check network access and the repository read credential. Buddy must never wait for an interactive Git prompt." >&2
+    return 1
+  fi
 }
 
 count_cron() {
@@ -108,7 +127,7 @@ update_repo() {
   local remote_ahead
   local stash_ref
 
-  run git -C "$repo_dir" fetch origin "$branch"
+  fetch_repo "$repo_dir" "$branch"
 
   current_branch="$(git -C "$repo_dir" branch --show-current)"
   if [[ "$current_branch" != "$branch" ]]; then
@@ -121,7 +140,8 @@ update_repo() {
 
   read -r local_ahead remote_ahead < <(git -C "$repo_dir" rev-list --left-right --count "HEAD...$remote_ref")
   if [[ "$local_ahead" != "0" ]]; then
-    echo "ERROR: $repo_dir has $local_ahead local commit(s) not in $remote_ref. Push or merge them before deployment." >&2
+    echo "ERROR: $repo_dir has $local_ahead local commit(s) not in $remote_ref." >&2
+    echo "Push those commits first; Buddy deploys only code that exists on the remote branch." >&2
     return 1
   fi
 
@@ -188,7 +208,7 @@ print_cronops_summary() {
   for attempt in $(seq 1 "$attempts"); do
     if command -v jq >/dev/null 2>&1; then
       if curl -fsS --max-time 8 http://127.0.0.1:8001/api/cronops/live/ \
-      | jq '{queue_summary, queue_by_queue, spool_summary, svr4plus_ingestion}'; then
+      | jq '{queue_summary, queue_by_queue, worker_coverage, spool_summary, svr4plus_ingestion}'; then
         return 0
       fi
     else
@@ -336,6 +356,7 @@ log "Pruning expired raw monitoring cron logs"
 run "$MONITORING_DIR/bin/prune-cron-logs.sh" --apply
 
 log "Restarting HODL PM2 processes by name"
+restart_pm2_app "hodl-cronops-reconciler"
 restart_hodl_worker_if_idle "hodl-cronops-worker-financial" "financial"
 restart_hodl_worker_if_idle "hodl-cronops-worker-rank" "rank"
 restart_hodl_worker_if_idle "hodl-cronops-worker-analytics" "analytics"
