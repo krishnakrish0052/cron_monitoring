@@ -196,6 +196,7 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
         "queue_by_queue": hodl.get("queue_by_queue", []),
         "spool_summary": hodl.get("spool_summary", {}),
         "workers": hodl.get("workers", []),
+        "worker_coverage": hodl.get("worker_coverage", []),
         "svr4plus_ingestion": hodl.get("svr4plus_ingestion", {}),
         "generated_at": hodl.get("generated_at"),
     }

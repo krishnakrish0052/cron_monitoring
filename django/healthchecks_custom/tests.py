@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
-from healthchecks_custom.views import _cronops_effective_by_check_code
+from healthchecks_custom.views import _cronops_effective_by_check_code, _merge_hodl_cronops_state
 
 
 class CronopsEffectiveStatusTests(SimpleTestCase):
@@ -39,3 +39,30 @@ class CronopsEffectiveStatusTests(SimpleTestCase):
         self.assertEqual(row["source"], "cronops_job_status")
         self.assertEqual(row["raw_status"], "stale")
         self.assertEqual(row["status"], "down")
+
+    @patch("healthchecks_custom.views._fetch_hodl_bundle")
+    def test_live_payload_keeps_worker_coverage(self, fetch_bundle):
+        fetch_bundle.return_value = {
+            "hodl": {
+                "running": [],
+                "recent": [],
+                "active_triggers": [],
+                "recent_triggers": [],
+                "worker_coverage": [
+                    {
+                        "queue_name": "financial",
+                        "status": "running",
+                        "worker_count": 1,
+                        "running_count": 1,
+                    }
+                ],
+            },
+            "slow_q": {},
+            "http_s": {},
+            "pg": {},
+        }
+
+        payload = _merge_hodl_cronops_state({})
+
+        self.assertEqual(payload["hodl_cronops"]["worker_coverage"][0]["queue_name"], "financial")
+        self.assertEqual(payload["hodl_cronops"]["worker_coverage"][0]["status"], "running")
