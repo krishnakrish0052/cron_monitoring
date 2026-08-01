@@ -229,9 +229,9 @@
                 ["HODL Down", hodlCronOps.down || 0, (hodlCronOps.down || 0) ? "bad" : "ok"],
                 ["HODL Late", hodlCronOps.grace || 0, (hodlCronOps.grace || 0) ? "warn" : "ok"],
                 ["HODL New", hodlCronOps.new || 0, ""],
-                ["External Checks", totals.total || 0, "info"],
-                ["External Down", totals.down || 0, (totals.down || 0) ? "bad" : "ok"],
-                ["External Paused", totals.paused || 0, ""],
+                ["All Healthchecks", totals.total || 0, "info"],
+                ["Checks Down", totals.down || 0, (totals.down || 0) ? "bad" : "ok"],
+                ["Checks Paused", totals.paused || 0, ""],
             ];
         } else {
             items = [
@@ -656,6 +656,237 @@
         }
     }
 
+    function cronOpsStatus(status) {
+        return String(status || "unknown").toLowerCase();
+    }
+
+    function cronOpsStatusClass(status) {
+        status = cronOpsStatus(status);
+        if (status === "success") return "success";
+        if (["failed", "failure", "missed_sla", "stale", "timeout"].indexOf(status) !== -1) return "failure";
+        if (["degraded", "running", "queued", "scheduled", "retrying", "waiting_for_capacity", "deferred_by_pressure"].indexOf(status) !== -1) return "warning";
+        return "paused";
+    }
+
+    function cronOpsStatusLabel(status) {
+        return cronOpsStatus(status).replace(/_/g, " ");
+    }
+
+    function cronOpsLatestRun(job) {
+        return job.latest_run || {};
+    }
+
+    function hasCounter(counters, key) {
+        return Boolean(counters) && Object.prototype.hasOwnProperty.call(counters, key) && counters[key] != null;
+    }
+
+    function formatWhole(value) {
+        if (value == null || !Number.isFinite(Number(value))) return String(value == null ? "-" : value);
+        return Math.round(Number(value)).toLocaleString("en-IN");
+    }
+
+    function cronOpsCounters(job) {
+        var run = cronOpsLatestRun(job);
+        var metadata = job.metadata || {};
+        var counters = run.item_counters || metadata.result || {};
+        return counters && typeof counters === "object" ? counters : {};
+    }
+
+    function cronOpsBusinessResult(job) {
+        var run = cronOpsLatestRun(job);
+        var counters = cronOpsCounters(job);
+        var parts = [];
+        var add = function (key, label) {
+            if (hasCounter(counters, key)) parts.push(label + " " + formatWhole(counters[key]));
+        };
+
+        add("profiles_scanned", "profiles checked");
+        add("investments_scanned", "investments checked");
+        add("purchases", "purchases checked");
+        add("rank_updates", "rank changes");
+        add("personal_earnings", "personal earnings");
+        add("team_earnings", "team earnings");
+        add("aggregate_created", "aggregate created");
+        add("aggregate_updated", "aggregate updated");
+        add("personal_created", "personal earnings");
+        add("team_created", "team earnings");
+        add("earnings_created", "earnings created");
+        add("earnings_skipped_existing", "earnings already present");
+        add("created", "created");
+        add("updated", "updated");
+        add("deleted_logs", "logs deleted");
+        add("profile_updates", "profiles updated");
+        add("descendant_updates", "descendants updated");
+        add("volume_rows", "volume rows");
+        add("user_level_rows", "user-level rows");
+        add("level_rows", "level rows");
+        add("m2m_rows", "level links");
+        add("pending_total", "pending source rows");
+        add("dead_letter_total", "quarantined source rows");
+        add("unresolved_event_total", "unresolved source rows");
+        add("missing_user", "unmatched wallets");
+
+        if (parts.length) return parts.slice(0, 5).join(" · ");
+        if (run.business_success === true || counters.business_success === true) return "Business completed";
+        return "No business counters reported";
+    }
+
+    function cronOpsActivity(job) {
+        var run = cronOpsLatestRun(job);
+        var status = cronOpsStatus(job.effective_status || job.status || run.effective_status || run.status);
+        var at = job.finished_at || run.finished_at || job.started_at || run.started_at || job.scheduled_for;
+        var label = status === "running" ? "Started" : (job.finished_at || run.finished_at ? "Finished" : "Scheduled");
+        var businessDate = job.target_business_date || run.target_business_date;
+        var html = at ? '<strong>' + esc(label + " " + timeAgo(at)) + '</strong><br><small>' + esc(formatIST(at)) + '</small>' : '<span class="monitoring-muted">No execution record</span>';
+        if (businessDate) html += '<br><small>Business date ' + esc(businessDate) + '</small>';
+        return html;
+    }
+
+    function cronOpsProgress(job) {
+        var run = cronOpsLatestRun(job);
+        var stage = run.stage || "";
+        var parts = [];
+        if (stage && stage !== "finished") parts.push(stage.replace(/_/g, " "));
+        if (run.current != null || run.total != null) {
+            parts.push(formatWhole(run.current || 0) + " / " + formatWhole(run.total || 0));
+        }
+        if (run.percent != null) parts.push(formatNumber(run.percent, 0) + "%");
+        if (job.wait_seconds != null && job.wait_seconds > 0) parts.push("wait " + formatSeconds(job.wait_seconds));
+        if (job.run_seconds != null) parts.push("ran " + formatSeconds(job.run_seconds));
+        return parts.length ? parts.join(" · ") : "No step progress";
+    }
+
+    function cronOpsAttention(job) {
+        var run = cronOpsLatestRun(job);
+        var counters = cronOpsCounters(job);
+        var status = cronOpsStatus(job.effective_status || job.status || run.effective_status || run.status);
+        var lane = job.queue_name || run.queue_name || "";
+        var businessDate = job.target_business_date || run.target_business_date;
+        var error = job.last_error_message || run.error_message || "";
+        if (lane === "financial" && !businessDate && ["missed_sla", "failed", "failure", "stale", "timeout"].indexOf(status) !== -1) {
+            return {text: "Missed SLA; approved business-date review required", state: "bad"};
+        }
+        if (error) {
+            return {text: error, state: "bad"};
+        }
+        if (counters.data_integrity_status === "degraded") {
+            return {
+                text: "Source review: " + (counters.data_integrity_reason || "data integrity issue"),
+                state: "warn"
+            };
+        }
+        if (Number(counters.dead_letter_total || 0) > 0 || Number(counters.unresolved_event_total || 0) > 0) {
+            return {text: "Source review required", state: "warn"};
+        }
+        if (["missed_sla", "failed", "failure", "stale", "timeout"].indexOf(status) !== -1) {
+            return {text: job.terminal_reason ? job.terminal_reason.replace(/_/g, " ") : "Operator review required", state: "bad"};
+        }
+        if (["queued", "scheduled", "retrying", "waiting_for_capacity", "deferred_by_pressure"].indexOf(status) !== -1) {
+            return {text: job.next_attempt_at ? "Next attempt " + timeUntil(job.next_attempt_at) : "Awaiting worker", state: "warn"};
+        }
+        return {text: "None", state: "ok"};
+    }
+
+    function cronOpsStatusOrder(job) {
+        var status = cronOpsStatus(job.effective_status || job.status);
+        var order = {
+            failed: 0,
+            failure: 0,
+            missed_sla: 0,
+            stale: 0,
+            timeout: 0,
+            degraded: 1,
+            running: 2,
+            retrying: 3,
+            deferred_by_pressure: 4,
+            waiting_for_capacity: 4,
+            queued: 5,
+            scheduled: 5,
+            duplicate_skipped: 7,
+            cancelled: 7,
+            success: 8
+        };
+        return order[status] == null ? 6 : order[status];
+    }
+
+    function bindCronOpsJobRows() {
+        Array.prototype.forEach.call(document.querySelectorAll(".monitoring-cronops-job-row"), function (row) {
+            if (row.dataset.bound === "1") return;
+            row.dataset.bound = "1";
+            var openHistory = function () {
+                if (row.dataset.jobKey) loadCronHistory(row.dataset.jobKey);
+            };
+            row.addEventListener("click", openHistory);
+            row.addEventListener("keydown", function (event) {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openHistory();
+                }
+            });
+        });
+    }
+
+    function renderCronOpsJobs(data) {
+        var hodl = data.hodl_cronops || {};
+        var jobs = hodl.job_statuses || [];
+        var table = $("monitoring-cronops-jobs");
+        var summary = $("monitoring-cronops-jobs-summary");
+        var updated = $("monitoring-cronops-jobs-updated");
+        if (updated) updated.textContent = "Updated " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
+        if (!table || !summary) return;
+        if (hodl.status !== "ok") {
+            summary.innerHTML = "";
+            table.innerHTML = '<tr><td colspan="7" class="monitoring-muted">CronOps job data is unavailable: ' + esc(hodl.error || "unknown error") + '</td></tr>';
+            return;
+        }
+
+        var counts = {healthy: 0, attention: 0, running: 0, queued: 0};
+        jobs.forEach(function (job) {
+            var status = cronOpsStatus(job.effective_status || job.status);
+            if (status === "success") counts.healthy += 1;
+            else if (status === "running") counts.running += 1;
+            else if (["queued", "scheduled", "retrying", "waiting_for_capacity", "deferred_by_pressure"].indexOf(status) !== -1) counts.queued += 1;
+            else counts.attention += 1;
+        });
+        var cards = [
+            ["Configured jobs", jobs.length || hodl.jobs || 0, "ok"],
+            ["Business healthy", counts.healthy, "ok"],
+            ["Needs attention", counts.attention, counts.attention ? "bad" : "ok"],
+            ["Running", counts.running, counts.running ? "warn" : "ok"],
+            ["Queued / retrying", counts.queued, counts.queued ? "warn" : "ok"]
+        ];
+        summary.innerHTML = cards.map(function (card) {
+            return '<div class="live-summary-card cronops-card ' + esc(card[2]) + '"><span>' + esc(card[0]) + '</span><strong>' + esc(card[1]) + '</strong></div>';
+        }).join("");
+
+        if (!jobs.length) {
+            table.innerHTML = '<tr><td colspan="7" class="monitoring-muted">No active CronOps jobs are registered.</td></tr>';
+            return;
+        }
+        jobs.sort(function (left, right) {
+            var statusOrder = cronOpsStatusOrder(left) - cronOpsStatusOrder(right);
+            if (statusOrder) return statusOrder;
+            return String(left.job_name || left.job_key || "").localeCompare(String(right.job_name || right.job_key || ""));
+        });
+        table.innerHTML = jobs.map(function (job) {
+            var run = cronOpsLatestRun(job);
+            var status = job.effective_status || job.status || run.effective_status || run.status;
+            var attention = cronOpsAttention(job);
+            var lane = job.queue_name || run.queue_name || "inline";
+            var schedule = job.schedule || run.schedule || "-";
+            return '<tr class="monitoring-cronops-job-row" data-job-key="' + attr(job.job_key || "") + '" tabindex="0" role="button" aria-label="Open history for ' + attr(job.job_name || job.job_key || "cron job") + '">' +
+                '<td><strong>' + esc(job.job_name || job.job_key || "Unknown job") + '</strong><br><small>' + esc(job.job_key || "-") + '</small></td>' +
+                '<td><strong>' + esc(lane) + '</strong><br><small>' + esc(schedule) + '</small></td>' +
+                '<td><span class="monitoring-status ' + esc(cronOpsStatusClass(status)) + '">' + esc(cronOpsStatusLabel(status)) + '</span></td>' +
+                '<td>' + cronOpsActivity(job) + '</td>' +
+                '<td class="monitoring-cronops-job-result">' + esc(cronOpsProgress(job)) + '</td>' +
+                '<td class="monitoring-cronops-job-result">' + esc(cronOpsBusinessResult(job)) + '</td>' +
+                '<td class="monitoring-cronops-job-attention ' + esc(attention.state) + '">' + esc(attention.text) + '</td>' +
+            '</tr>';
+        }).join("");
+        bindCronOpsJobRows();
+    }
+
     function renderLiveCrons(data) {
         var rows = data.active_crons || [];
         if (!rows.length) {
@@ -799,6 +1030,7 @@
                 lastLive = data;
                 renderLiveSummary(data);
                 renderCronOpsLanes(data);
+                renderCronOpsJobs(data);
                 renderLiveCrons(data);
                 renderRecentRuns(data);
                 renderExternalErrors(data);

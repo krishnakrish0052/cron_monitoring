@@ -32,6 +32,7 @@
         <div class="monitoring-quick-nav">
             <a href="#monitoring-action-center">Action Center</a>
             <a href="#monitoring-cronops-panel">CronOps Lanes</a>
+            <a href="#monitoring-cronops-jobs-panel">HODL Jobs</a>
             <a href="#monitoring-live-panel">Live Crons</a>
             <a href="#monitoring-projects-panel">Cron Tables</a>
             <a href="#monitoring-selected-panel">Selected Cron</a>
@@ -99,6 +100,35 @@
                         </tbody>
                     </table>
                 </div>
+            </div>
+        </div>
+
+        <div id="monitoring-cronops-jobs-panel" class="monitoring-panel monitoring-cronops-jobs-panel">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>HODL CronOps Jobs</h2>
+                    <p class="monitoring-muted">Every configured HODL job with its current state and most recent business result. Select a row for 30-day history.</p>
+                </div>
+                <span id="monitoring-cronops-jobs-updated" class="monitoring-muted">Loading...</span>
+            </div>
+            <div id="monitoring-cronops-jobs-summary" class="monitoring-cronops-cards"></div>
+            <div class="table-responsive monitoring-live-table-wrap monitoring-cronops-jobs-table-wrap">
+                <table class="table table-condensed monitoring-live-table">
+                    <thead>
+                        <tr>
+                            <th>Job</th>
+                            <th>Lane / Schedule</th>
+                            <th>Status</th>
+                            <th>Last Work</th>
+                            <th>Progress</th>
+                            <th>Business Result</th>
+                            <th>Attention</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monitoring-cronops-jobs">
+                        <tr><td colspan="7" class="monitoring-muted">Loading CronOps job status...</td></tr>
+                    </tbody>
+                </table>
             </div>
         </div>
 

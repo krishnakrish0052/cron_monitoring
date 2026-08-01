@@ -48,6 +48,13 @@ class CronopsEffectiveStatusTests(SimpleTestCase):
                 "recent": [],
                 "active_triggers": [],
                 "recent_triggers": [],
+                "job_statuses": [
+                    {
+                        "job_key": "sovereign.cron.update_rank",
+                        "effective_status": "success",
+                        "queue_name": "rank",
+                    }
+                ],
                 "worker_coverage": [
                     {
                         "queue_name": "financial",
@@ -64,5 +71,6 @@ class CronopsEffectiveStatusTests(SimpleTestCase):
 
         payload = _merge_hodl_cronops_state({})
 
+        self.assertEqual(payload["hodl_cronops"]["job_statuses"][0]["queue_name"], "rank")
         self.assertEqual(payload["hodl_cronops"]["worker_coverage"][0]["queue_name"], "financial")
         self.assertEqual(payload["hodl_cronops"]["worker_coverage"][0]["status"], "running")
