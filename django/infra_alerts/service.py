@@ -250,7 +250,7 @@ def collect_rules() -> list[RuleResult]:
                     "critical",
                     missed_sla_count > 0,
                     float(missed_sla_count),
-                    "0 missed SLA runs in 24h",
+                    "0 missed SLA terminal events in 24h",
                     0,
                 )
             )
