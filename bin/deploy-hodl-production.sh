@@ -167,13 +167,16 @@ update_repo() {
 }
 
 refresh_monitoring_assets() {
-  log "Checking and collecting monitoring static assets"
+  log "Checking, collecting, and compressing monitoring static assets"
   (
     cd "$HEALTHCHECKS_DIR"
     export DEBUG=False
     export PYTHONPATH="$MONITORING_DIR/django:${PYTHONPATH:-}"
     run ./venv/bin/python manage.py check
     run ./venv/bin/python manage.py collectstatic --noinput
+    # monitoring.html uses {% compress %}; collectstatic alone leaves the
+    # previous hashed JavaScript bundle live in production.
+    run ./venv/bin/python manage.py compress --force
   )
 }
 
