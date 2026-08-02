@@ -20,6 +20,14 @@ SLACK_WEBHOOK_URL = os.environ.get("MONITORING_SLACK_WEBHOOK_URL", "")
 RUNTIME_ROOT = Path(os.environ.get("MONITORING_INFRA_ALERT_RUNTIME", "/home/ubuntu/monitoring/runtime/infra-alerts"))
 OBSERVER_STATE_PATH = Path(os.environ.get("MONITORING_OBSERVER_STATE_PATH", "/home/ubuntu/monitoring/runtime/observer/state.json"))
 HODL_CRONOPS_LIVE_URL = os.environ.get("HODL_CRONOPS_LIVE_URL", "http://127.0.0.1:8001/api/cronops/live/")
+HODL_CRONOPS_EXPECTED_WORKER_QUEUES = (
+    "financial",
+    "rank",
+    "analytics",
+    "maintenance",
+    "fetcher",
+    "reconciler",
+)
 INTERVAL_SECONDS = float(os.environ.get("MONITORING_INFRA_ALERT_INTERVAL_SECONDS", "30"))
 REMINDER_SECONDS = float(os.environ.get("MONITORING_INFRA_ALERT_REMINDER_SECONDS", "1800"))
 DRY_RUN = os.environ.get("MONITORING_INFRA_ALERT_DRY_RUN", "0") == "1"
@@ -148,7 +156,7 @@ def read_observer_stale_count() -> int | None:
     return None
 
 
-def read_hodl_stale_count() -> int | None:
+def fetch_hodl_live() -> dict[str, Any] | None:
     if not HODL_CRONOPS_LIVE_URL:
         return None
     try:
@@ -156,9 +164,38 @@ def read_hodl_stale_count() -> int | None:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception:
         return None
+    return payload if isinstance(payload, dict) else None
+
+
+def read_hodl_stale_count(payload: dict[str, Any] | None) -> int | None:
+    if payload is None:
+        return None
     with contextlib.suppress(Exception):
         return int(payload.get("stale_count_24h") or len(payload.get("stale") or []))
     return None
+
+
+def missing_hodl_worker_lanes(payload: dict[str, Any] | None) -> list[str] | None:
+    if payload is None:
+        return None
+    coverage_rows = payload.get("worker_coverage")
+    if not isinstance(coverage_rows, list):
+        return list(HODL_CRONOPS_EXPECTED_WORKER_QUEUES)
+    coverage = {
+        str(item.get("queue_name", "")).strip(): str(item.get("status", "missing")).strip()
+        for item in coverage_rows
+        if isinstance(item, dict)
+    }
+    return [queue_name for queue_name in HODL_CRONOPS_EXPECTED_WORKER_QUEUES if coverage.get(queue_name) != "running"]
+
+
+def payload_count(payload: dict[str, Any], section: str, field: str) -> int:
+    source = payload.get(section) or {}
+    if not isinstance(source, dict):
+        return 0
+    with contextlib.suppress(Exception):
+        return max(0, int(source.get(field) or 0))
+    return 0
 
 
 def monitoring_down_targets() -> list[str]:
@@ -173,15 +210,100 @@ def monitoring_down_targets() -> list[str]:
 
 def collect_rules() -> list[RuleResult]:
     rules: list[RuleResult] = []
-    cpu = prom_scalar('100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m])))')
-    memory_available = prom_scalar("100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes")
-    disk_used = prom_scalar(
-        '100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} '
-        '/ node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})'
-    )
-    stale_count = read_hodl_stale_count()
+    hodl_live = fetch_hodl_live()
+    stale_count = read_hodl_stale_count(hodl_live)
     if stale_count is None:
         stale_count = read_observer_stale_count()
+
+    if HODL_CRONOPS_LIVE_URL:
+        rules.append(
+            RuleResult(
+                "cronops_live_unavailable",
+                "CronOps live status unavailable",
+                "critical",
+                hodl_live is None,
+                None,
+                "live status endpoint responds",
+                60,
+                HODL_CRONOPS_LIVE_URL if hodl_live is None else "",
+            )
+        )
+        if hodl_live is not None:
+            missing_lanes = missing_hodl_worker_lanes(hodl_live) or []
+            rules.append(
+                RuleResult(
+                    "cronops_worker_lane_missing",
+                    "CronOps worker lane unavailable",
+                    "critical",
+                    bool(missing_lanes),
+                    float(len(missing_lanes)),
+                    "all required lanes running",
+                    60,
+                    ", ".join(missing_lanes),
+                )
+            )
+            missed_sla_count = payload_count(hodl_live, "queue_summary", "missed_sla_24h")
+            rules.append(
+                RuleResult(
+                    "cronops_missed_sla",
+                    "CronOps job missed SLA",
+                    "critical",
+                    missed_sla_count > 0,
+                    float(missed_sla_count),
+                    "0 missed SLA runs in 24h",
+                    0,
+                )
+            )
+            spool_pending = payload_count(hodl_live, "spool_summary", "pending")
+            spool_failed = payload_count(hodl_live, "spool_summary", "failed")
+            spool_total = spool_pending + spool_failed
+            rules.append(
+                RuleResult(
+                    "cronops_spool_backlog",
+                    "CronOps DB-outage spool backlog",
+                    "critical",
+                    spool_total > 0,
+                    float(spool_total),
+                    "0 pending or failed spool files",
+                    0,
+                    f"pending={spool_pending}, failed={spool_failed}",
+                )
+            )
+
+    rules.append(
+        RuleResult(
+            "cron_stale_critical",
+            "Stale cron detected",
+            "critical",
+            stale_count is not None and stale_count > 0,
+            float(stale_count) if stale_count is not None else None,
+            "> 0 stale crons",
+            180,
+        )
+    )
+
+    try:
+        cpu = prom_scalar('100 * (1 - avg(rate(node_cpu_seconds_total{mode="idle"}[1m])))')
+        memory_available = prom_scalar("100 * node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes")
+        disk_used = prom_scalar(
+            '100 * (1 - node_filesystem_avail_bytes{mountpoint="/",fstype!~"tmpfs|overlay"} '
+            '/ node_filesystem_size_bytes{mountpoint="/",fstype!~"tmpfs|overlay"})'
+        )
+        down_targets = monitoring_down_targets()
+    except Exception as exc:
+        rules.append(
+            RuleResult(
+                "prometheus_unavailable",
+                "Prometheus unavailable",
+                "critical",
+                True,
+                None,
+                "query succeeds",
+                60,
+                str(exc),
+            )
+        )
+        return rules
 
     rules.append(RuleResult("cpu_warning", "CPU high", "warning", cpu is not None and cpu > 90, cpu, "> 90%", 300))
     rules.append(RuleResult("cpu_critical", "CPU critical", "critical", cpu is not None and cpu > 95, cpu, "> 95%", 600))
@@ -213,19 +335,7 @@ def collect_rules() -> list[RuleResult]:
     rules.append(
         RuleResult("disk_critical", "Disk usage critical", "critical", disk_used is not None and disk_used > 92, disk_used, "> 92% used", 0)
     )
-    rules.append(
-        RuleResult(
-            "cron_stale_critical",
-            "Stale cron detected",
-            "critical",
-            stale_count is not None and stale_count > 0,
-            float(stale_count) if stale_count is not None else None,
-            "> 0 stale crons",
-            180,
-        )
-    )
 
-    down_targets = monitoring_down_targets()
     rules.append(
         RuleResult(
             "monitoring_services_down",

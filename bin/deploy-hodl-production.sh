@@ -5,10 +5,15 @@ HODL_DIR="/home/ubuntu/hodlbackend2/HODL-2025"
 MONITORING_DIR="/home/ubuntu/monitoring"
 HEALTHCHECKS_DIR="$MONITORING_DIR/healthchecks"
 RELOAD_CRONTABS="$MONITORING_DIR/bin/reload-crontabs.sh"
+CRONOPS_WORKER_WATCHDOG="$MONITORING_DIR/bin/ensure-hodl-cronops-workers.sh"
+CRONOPS_WORKER_WATCHDOG_SERVICE="$MONITORING_DIR/systemd/hodl-cronops-worker-watchdog.service"
+CRONOPS_WORKER_WATCHDOG_TIMER="$MONITORING_DIR/systemd/hodl-cronops-worker-watchdog.timer"
+CRONOPS_LIVE_URL="${HODL_CRONOPS_LIVE_URL:-http://127.0.0.1:8001/api/cronops/live/}"
+REQUIRED_WORKER_QUEUES="${HODL_CRONOPS_REQUIRED_WORKER_QUEUES:-financial,rank,analytics,maintenance,fetcher,reconciler}"
 EXPECTED_MONITORED_CRONS="${HODL_EXPECTED_MONITORED_CRONS:-31}"
 GIT_FETCH_TIMEOUT_SECONDS="${HODL_GIT_FETCH_TIMEOUT_SECONDS:-60}"
 CHECK_ONLY=0
-START_STOPPED_WORKERS="${HODL_CRONOPS_START_STOPPED_WORKERS:-0}"
+START_STOPPED_WORKERS="${HODL_CRONOPS_START_STOPPED_WORKERS:-1}"
 
 case "${1:-}" in
   "") ;;
@@ -189,6 +194,53 @@ wait_for_cronops_inventory() {
   return 1
 }
 
+read_cronops_worker_coverage() {
+  curl -fsS --max-time 8 "$CRONOPS_LIVE_URL" \
+    | HODL_CRONOPS_REQUIRED_WORKER_QUEUES="$REQUIRED_WORKER_QUEUES" python3 -c '
+import json
+import os
+import sys
+
+payload = json.load(sys.stdin)
+if not isinstance(payload, dict):
+    raise ValueError("CronOps live response is not an object")
+coverage_rows = payload.get("worker_coverage")
+if not isinstance(coverage_rows, list):
+    raise ValueError("CronOps live response has no worker_coverage list")
+
+required = [item.strip() for item in os.environ["HODL_CRONOPS_REQUIRED_WORKER_QUEUES"].split(",") if item.strip()]
+coverage = {
+    str(item.get("queue_name", "")).strip(): str(item.get("status", "missing")).strip()
+    for item in coverage_rows
+    if isinstance(item, dict)
+}
+result = ["{}={}".format(queue_name, coverage.get(queue_name, "missing")) for queue_name in required]
+print(", ".join(result))
+if any(coverage.get(queue_name) != "running" for queue_name in required):
+    raise SystemExit(1)
+'
+}
+
+wait_for_cronops_worker_coverage() {
+  local attempts="${1:-45}"
+  local delay="${2:-2}"
+  local attempt
+  local coverage=""
+
+  for attempt in $(seq 1 "$attempts"); do
+    if coverage="$(read_cronops_worker_coverage)"; then
+      echo "CronOps worker coverage: $coverage"
+      return 0
+    fi
+    if [[ "$attempt" != "$attempts" ]]; then
+      sleep "$delay"
+    fi
+  done
+
+  echo "ERROR: CronOps worker coverage did not become healthy after $attempts attempt(s): ${coverage:-unavailable}." >&2
+  return 1
+}
+
 sync_hodl_healthchecks_registry() {
   log "Synchronizing HODL Healthchecks registry from CronOps inventory"
   (
@@ -228,6 +280,27 @@ print_cronops_summary() {
 restart_pm2_app() {
   local name="$1"
   run pm2 startOrRestart "$MONITORING_DIR/ecosystem.config.js" --only "$name" --update-env
+}
+
+install_cronops_worker_watchdog() {
+  if [[ ! -f "$CRONOPS_WORKER_WATCHDOG_SERVICE" || ! -f "$CRONOPS_WORKER_WATCHDOG_TIMER" ]]; then
+    echo "ERROR: CronOps watchdog unit source files are missing from $MONITORING_DIR/systemd." >&2
+    return 1
+  fi
+  if ! sudo -n true; then
+    echo "ERROR: passwordless sudo is required to install the CronOps watchdog timer." >&2
+    return 1
+  fi
+
+  run sudo -n install -o root -g root -m 0644 \
+    "$CRONOPS_WORKER_WATCHDOG_SERVICE" \
+    /etc/systemd/system/hodl-cronops-worker-watchdog.service
+  run sudo -n install -o root -g root -m 0644 \
+    "$CRONOPS_WORKER_WATCHDOG_TIMER" \
+    /etc/systemd/system/hodl-cronops-worker-watchdog.timer
+  run sudo -n systemctl daemon-reload
+  run sudo -n systemctl enable --now hodl-cronops-worker-watchdog.timer
+  run sudo -n systemctl is-active --quiet hodl-cronops-worker-watchdog.timer
 }
 
 is_truthy() {
@@ -289,10 +362,10 @@ restart_hodl_worker_if_idle() {
   pm2_state="$(pm2_app_state "$process_name")" || return $?
   if [[ "$pm2_state" == "stopped" || "$pm2_state" == "missing" ]]; then
     if ! is_truthy "$START_STOPPED_WORKERS"; then
-      echo "Leaving $process_name $pm2_state: set HODL_CRONOPS_START_STOPPED_WORKERS=1 or use --start-stopped-workers after auditing its backlog."
-      return 0
+      echo "ERROR: refusing to leave required worker $process_name in $pm2_state state. Set HODL_CRONOPS_START_STOPPED_WORKERS=1." >&2
+      return 1
     fi
-    echo "Explicitly starting $process_name from $pm2_state state."
+    echo "Starting required worker $process_name from $pm2_state state."
   fi
 
   restart_pm2_app "$process_name"
@@ -313,6 +386,7 @@ if [[ "$CHECK_ONLY" == "1" ]]; then
   )
   verify_crontab
   run pm2 status
+  wait_for_cronops_worker_coverage 1 0
   print_cronops_summary
   exit 0
 fi
@@ -355,13 +429,21 @@ refresh_monitoring_assets
 log "Pruning expired raw monitoring cron logs"
 run "$MONITORING_DIR/bin/prune-cron-logs.sh" --apply
 
+log "Installing CronOps worker watchdog timer"
+install_cronops_worker_watchdog
+
 log "Restarting HODL PM2 processes by name"
-restart_pm2_app "hodl-cronops-reconciler"
+restart_hodl_worker_if_idle "hodl-cronops-reconciler" "reconciler"
 restart_hodl_worker_if_idle "hodl-cronops-worker-financial" "financial"
 restart_hodl_worker_if_idle "hodl-cronops-worker-rank" "rank"
 restart_hodl_worker_if_idle "hodl-cronops-worker-analytics" "analytics"
 restart_hodl_worker_if_idle "hodl-cronops-worker-maintenance" "maintenance"
 restart_hodl_worker_if_idle "hodl-cronops-worker-fetcher" "fetcher"
+
+log "Verifying required CronOps worker lanes"
+run "$CRONOPS_WORKER_WATCHDOG"
+wait_for_cronops_worker_coverage
+
 restart_pm2_app "healthchecks-web"
 run pm2 save
 
