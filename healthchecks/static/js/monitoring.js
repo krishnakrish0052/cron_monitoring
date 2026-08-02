@@ -34,6 +34,52 @@
         return esc(value).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
     }
 
+    function errorBanner(message) {
+        return '<div class="monitoring-error-banner" role="alert">' +
+            '<span class="error-icon" aria-hidden="true">!</span>' +
+            '<span class="error-text">' + esc(message || "Unknown monitoring error") + '</span>' +
+        '</div>';
+    }
+
+    function showError(id, message) {
+        var element = $(id);
+        if (!element) return;
+        if (element.tagName === "TBODY") {
+            element.innerHTML = '<tr><td colspan="99">' + errorBanner(message) + '</td></tr>';
+            return;
+        }
+        if (element.tagName === "PRE") {
+            element.textContent = message || "Unknown monitoring error";
+            element.classList.add("monitoring-error-banner");
+            return;
+        }
+        if (element.namespaceURI === "http://www.w3.org/2000/svg") {
+            element.textContent = message || "Unknown monitoring error";
+            return;
+        }
+        element.innerHTML = errorBanner(message);
+    }
+
+    function clearError(id) {
+        var element = $(id);
+        if (!element) return;
+        if (element.tagName === "PRE" && element.classList.contains("monitoring-error-banner")) {
+            element.classList.remove("monitoring-error-banner");
+            element.textContent = "";
+            return;
+        }
+        Array.prototype.forEach.call(element.querySelectorAll(".monitoring-error-banner"), function (banner) {
+            banner.remove();
+        });
+    }
+
+    function responseJson(response) {
+        if (!response.ok) {
+            throw new Error("HTTP " + response.status + " while loading monitoring data");
+        }
+        return response.json();
+    }
+
     function getCookie(name) {
         var value = "; " + document.cookie;
         var parts = value.split("; " + name + "=");
@@ -513,7 +559,7 @@
         if (inflight.overview) return inflight.overview;
         inflight.overview = true;
         return fetch(root.dataset.overviewUrl, {credentials: "same-origin"})
-            .then(function (response) { return response.json(); })
+            .then(responseJson)
             .then(function (data) {
                 clearError("monitoring-projects");
                 lastOverview = data;
@@ -531,7 +577,7 @@
         if (inflight.infrastructure) return inflight.infrastructure;
         inflight.infrastructure = true;
         return fetch(root.dataset.infraUrl, {credentials: "same-origin"})
-            .then(function (response) { return response.json(); })
+            .then(responseJson)
             .then(function (data) {
                 clearError("monitoring-infra-grid");
                 var metrics = data.metrics || {};
@@ -1066,8 +1112,10 @@
         }).join("");
     }
 
-    function renderLiveAlerts(data) {
-        var alerts = [];
+    function renderLiveAlerts(data, renderErrors) {
+        var alerts = (renderErrors || []).map(function (item) {
+            return "Monitoring panel failed: " + item;
+        });
         var hodl = data.hodl_cronops || {};
         var workerCoverage = cronopsWorkerCoverage(hodl);
         var spool = hodl.spool_summary || {};
@@ -1133,30 +1181,67 @@
         }).join("");
     }
 
+    function renderLiveData(data) {
+        var renderErrors = [];
+        [
+            ["Live summary", renderLiveSummary],
+            ["CronOps lanes", renderCronOpsLanes],
+            ["CronOps jobs", renderCronOpsJobs],
+            ["Financial recoveries", renderCronOpsRecoveries],
+            ["Live cron table", renderLiveCrons],
+            ["Recent runs", renderRecentRuns],
+            ["External errors", renderExternalErrors],
+            ["Orphan processes", renderOrphans],
+            ["PostgreSQL", renderPostgres],
+            ["HTTP statistics", renderHttpStats],
+            ["Slow SQL", renderSlowSQL],
+            ["Action center", renderActionCenter]
+        ].forEach(function (entry) {
+            try {
+                entry[1](data);
+            } catch (error) {
+                console.error("Monitoring render failed for " + entry[0], error);
+                renderErrors.push(entry[0] + ": " + (error.message || String(error)));
+            }
+        });
+        try {
+            renderLiveAlerts(data, renderErrors);
+        } catch (error) {
+            console.error("Monitoring render failed for live alerts", error);
+            showError("monitoring-live-alerts", "Live alerts failed: " + (error.message || String(error)));
+        }
+    }
+
+    function showLiveDataError(message) {
+        [
+            "monitoring-live-summary",
+            "monitoring-cronops-cards",
+            "monitoring-cronops-queues",
+            "monitoring-cronops-workers",
+            "monitoring-svr4plus-ingestion",
+            "monitoring-cronops-jobs-summary",
+            "monitoring-cronops-jobs",
+            "monitoring-cronops-recoveries-summary",
+            "monitoring-cronops-recoveries",
+            "monitoring-live-crons",
+            "monitoring-live-alerts"
+        ].forEach(function (id) {
+            showError(id, message);
+        });
+    }
+
     function loadLive() {
         if (inflight.live) return inflight.live;
         inflight.live = true;
         return fetch(root.dataset.liveUrl, {credentials: "same-origin"})
-            .then(function (response) { return response.json(); })
+            .then(responseJson)
             .then(function (data) {
                 clearError("monitoring-live-crons");
                 lastLive = data;
-                renderLiveSummary(data);
-                renderCronOpsLanes(data);
-                renderCronOpsJobs(data);
-                renderCronOpsRecoveries(data);
-                renderLiveCrons(data);
-                renderRecentRuns(data);
-                renderExternalErrors(data);
-                renderLiveAlerts(data);
-                renderOrphans(data);
-                renderPostgres(data);
-                renderHttpStats(data);
-                renderSlowSQL(data);
-                renderActionCenter();
+                renderLiveData(data);
             })
             .catch(function (err) {
-                showError("monitoring-live-crons", "Live monitoring data failed to load: " + err.message);
+                showLiveDataError("Live monitoring data failed to load: " + err.message);
             })
             .finally(function () { inflight.live = false; });
     }
