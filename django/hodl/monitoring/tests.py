@@ -49,3 +49,24 @@ class MonitoredCronTests(SimpleTestCase):
         self.assertEqual(capture.events, ["success"])
         self.assertEqual(ping.call_args_list[0].args[1], "start")
         self.assertEqual(ping.call_args_list[-1].args[1], "success")
+
+    def test_snapshot_capture_failure_is_not_reported_as_a_green_handoff(self):
+        capture = _Capture()
+
+        @monitored_cron
+        def sample_job():
+            return {
+                "cronops_status": "queued_snapshot_unavailable",
+                "job_key": "svr4plus.cron.svr4plus_earning",
+            }
+
+        with (
+            patch("monitoring.hc_ping.uuid_for", return_value="00000000-0000-4000-8000-000000000001"),
+            patch("monitoring.hc_ping.capture_cron_run", return_value=capture),
+            patch("monitoring.hc_ping.ping") as ping,
+        ):
+            result = sample_job()
+
+        self.assertEqual(result["cronops_status"], "queued_snapshot_unavailable")
+        self.assertEqual(capture.events[0][0], "failure")
+        self.assertEqual(ping.call_args_list[-1].args[1], "fail")

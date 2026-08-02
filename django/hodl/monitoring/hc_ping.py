@@ -20,6 +20,7 @@ def _cronops_dispatch_status(result):
     if isinstance(result, dict) and result.get("cronops_status") in {
         "queued",
         "already_queued",
+        "queued_snapshot_unavailable",
         "spooled_db_unavailable",
     }:
         return result.get("cronops_status")
@@ -83,7 +84,7 @@ def monitored_cron(func):
                 dispatch_status = _cronops_dispatch_status(result)
                 if dispatch_status:
                     payload = json.dumps(sanitize_metadata(result), default=str, sort_keys=True)
-                    if dispatch_status == "spooled_db_unavailable":
+                    if dispatch_status in {"spooled_db_unavailable", "queued_snapshot_unavailable"}:
                         run.mark_failure(payload)
                         ping(dotted, "fail", payload)
                         return result

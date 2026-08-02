@@ -297,6 +297,7 @@
             Number(queueSummary.waiting_for_capacity || 0) +
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
+        var automaticRecovery = Number(queueSummary.auto_recovery_pending || 0);
         var spoolPending = Number(spool.pending || 0);
         var spoolFailed = Number(spool.failed || 0);
         var externalErrors = (live.external_errors || []).length;
@@ -561,6 +562,7 @@
         $("monitoring-live-summary").innerHTML = [
             ["Running crons", totals.running || 0],
             ["CronOps backlog", queueBacklog],
+            ["Financial recovery", automaticRecovery + " pending"],
             ["Lane workers", workerCoverage.running + "/" + workerCoverage.total],
             ["DB spool", (spool.pending || 0) + " pending"],
             ["Cron procs", totals.processes || 0],
@@ -593,8 +595,10 @@
             Number(queueSummary.waiting_for_capacity || 0) +
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
+        var automaticRecovery = Number(queueSummary.auto_recovery_pending || 0);
         var cards = [
             ["Backlog", backlog, backlog ? "warn" : "ok"],
+            ["Financial recovery", automaticRecovery, automaticRecovery ? "warn" : "ok"],
             ["Running", Number(queueSummary.running || 0), Number(queueSummary.running || 0) ? "ok" : ""],
             ["Workers", runningWorkers + "/" + workerCoverage.total, workerCoverage.unavailable.length || !workerCoverage.total ? "warn" : "ok"],
             ["Stale workers", staleWorkers, staleWorkers ? "warn" : "ok"],
@@ -737,8 +741,10 @@
         var at = job.finished_at || run.finished_at || job.started_at || run.started_at || job.scheduled_for;
         var label = status === "running" ? "Started" : (job.finished_at || run.finished_at ? "Finished" : "Scheduled");
         var businessDate = job.target_business_date || run.target_business_date;
+        var recovery = job.auto_recovery || ((job.metadata || {}).auto_recovery_pending) || ((job.metadata || {}).auto_recovery_running) || ((job.metadata || {}).auto_recovery);
         var html = at ? '<strong>' + esc(label + " " + timeAgo(at)) + '</strong><br><small>' + esc(formatIST(at)) + '</small>' : '<span class="monitoring-muted">No execution record</span>';
         if (businessDate) html += '<br><small>Business date ' + esc(businessDate) + '</small>';
+        if (recovery) html += '<br><small>Automatic missed-day recovery</small>';
         return html;
     }
 
@@ -763,6 +769,10 @@
         var lane = job.queue_name || run.queue_name || "";
         var businessDate = job.target_business_date || run.target_business_date;
         var error = job.last_error_message || run.error_message || "";
+        var recovery = job.auto_recovery || ((job.metadata || {}).auto_recovery_pending) || ((job.metadata || {}).auto_recovery_running) || ((job.metadata || {}).auto_recovery);
+        if (recovery) {
+            return {text: "Automatic recovery for business date " + (businessDate || "-"), state: "warn"};
+        }
         if (lane === "financial" && !businessDate && ["missed_sla", "failed", "failure", "stale", "timeout"].indexOf(status) !== -1) {
             return {text: "Missed SLA; approved business-date review required", state: "bad"};
         }
