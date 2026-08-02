@@ -658,6 +658,7 @@
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
         var automaticRecovery = Number(queueSummary.auto_recovery_pending || 0);
+        var missedSla = Number(queueSummary.missed_sla_24h || 0);
         var completedRecovery = (hodl.recent_auto_recoveries || []).filter(function (recovery) {
             return cronOpsStatus(recovery.effective_status || recovery.status) === "success";
         }).length;
