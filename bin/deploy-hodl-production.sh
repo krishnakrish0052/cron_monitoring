@@ -445,6 +445,7 @@ run "$CRONOPS_WORKER_WATCHDOG"
 wait_for_cronops_worker_coverage
 
 restart_pm2_app "healthchecks-web"
+restart_pm2_app "infra-alert-worker"
 run pm2 save
 
 log "Final CronOps queue summary"
