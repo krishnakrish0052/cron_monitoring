@@ -48,6 +48,14 @@ class CronopsEffectiveStatusTests(SimpleTestCase):
                 "recent": [],
                 "active_triggers": [],
                 "recent_triggers": [],
+                "recent_auto_recoveries": [
+                    {
+                        "job_key": "svr4plus.cron.svr4plus_earning",
+                        "effective_status": "success",
+                        "target_business_date": "2026-08-01",
+                        "auto_recovery": {"terminal_status": "success"},
+                    }
+                ],
                 "job_statuses": [
                     {
                         "job_key": "sovereign.cron.update_rank",
@@ -74,3 +82,7 @@ class CronopsEffectiveStatusTests(SimpleTestCase):
         self.assertEqual(payload["hodl_cronops"]["job_statuses"][0]["queue_name"], "rank")
         self.assertEqual(payload["hodl_cronops"]["worker_coverage"][0]["queue_name"], "financial")
         self.assertEqual(payload["hodl_cronops"]["worker_coverage"][0]["status"], "running")
+        self.assertEqual(
+            payload["hodl_cronops"]["recent_auto_recoveries"][0]["target_business_date"],
+            "2026-08-01",
+        )

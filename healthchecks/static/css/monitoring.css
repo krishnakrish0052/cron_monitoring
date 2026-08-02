@@ -142,6 +142,7 @@ body.page-monitoring .footer {
 #monitoring-action-center,
 #monitoring-cronops-panel,
 #monitoring-cronops-jobs-panel,
+#monitoring-cronops-recoveries-panel,
 #monitoring-live-panel,
 #monitoring-projects-panel,
 #monitoring-selected-panel,
@@ -160,6 +161,10 @@ body.page-monitoring .footer {
 
 .monitoring-cronops-jobs-panel {
     border-color: rgba(77, 255, 136, .30);
+}
+
+.monitoring-cronops-recoveries-panel {
+    border-color: rgba(255, 176, 0, .34);
 }
 
 .monitoring-cronops-cards {
@@ -684,12 +689,25 @@ body.page-monitoring .footer {
     max-height: 720px;
 }
 
+.monitoring-cronops-recoveries-table-wrap {
+    max-height: 420px;
+}
+
 .monitoring-cronops-job-row {
     cursor: pointer;
 }
 
 .monitoring-cronops-job-row:focus {
     outline: 2px solid rgba(0, 245, 212, .72);
+    outline-offset: -2px;
+}
+
+.monitoring-cronops-recovery-row {
+    cursor: pointer;
+}
+
+.monitoring-cronops-recovery-row:focus {
+    outline: 2px solid rgba(255, 176, 0, .72);
     outline-offset: -2px;
 }
 

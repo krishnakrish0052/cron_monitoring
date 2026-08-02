@@ -150,6 +150,9 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
     recent = [_hodl_run_to_live(run) for run in hodl.get("recent", [])]
     active_triggers = [_hodl_trigger_to_live(trigger) for trigger in hodl.get("active_triggers", [])]
     recent_triggers = [_hodl_trigger_to_live(trigger) for trigger in hodl.get("recent_triggers", [])]
+    recent_auto_recoveries = [
+        _hodl_trigger_to_live(trigger) for trigger in hodl.get("recent_auto_recoveries", [])
+    ]
     orphans = hodl.get("orphans", [])
     slow_q = bundle["slow_q"]
     http_s = bundle["http_s"]
@@ -185,6 +188,7 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
         "active_triggers": len(active_triggers),
         "recent": len(recent),
         "recent_triggers": len(recent_triggers),
+        "recent_auto_recoveries": recent_auto_recoveries,
         "orphans": len(orphans),
         "duplicate_skips_24h": hodl.get("duplicate_skips_24h", 0),
         "resource_deferred_24h": hodl.get("resource_deferred_24h", 0),

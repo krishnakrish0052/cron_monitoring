@@ -298,6 +298,9 @@
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
         var automaticRecovery = Number(queueSummary.auto_recovery_pending || 0);
+        var completedRecovery = (hodl.recent_auto_recoveries || []).filter(function (recovery) {
+            return cronOpsStatus(recovery.effective_status || recovery.status) === "success";
+        }).length;
         var spoolPending = Number(spool.pending || 0);
         var spoolFailed = Number(spool.failed || 0);
         var externalErrors = (live.external_errors || []).length;
@@ -327,6 +330,14 @@
                     " · waiting " + Number(queueSummary.waiting_for_capacity || 0) +
                     " · retrying " + Number(queueSummary.retrying || 0),
                 state: queueBacklog >= 20 ? "bad" : queueBacklog ? "warn" : "ok"
+            },
+            {
+                label: "Financial Recovery",
+                value: automaticRecovery ? automaticRecovery + " active" : completedRecovery,
+                note: automaticRecovery ?
+                    "Snapshot-backed financial recovery is in progress." :
+                    (completedRecovery ? completedRecovery + " completed recovery run(s) in the last 24 hours." : "No recent financial recovery runs."),
+                state: automaticRecovery ? "warn" : "ok"
             },
             {
                 label: "Lane Workers",
@@ -556,13 +567,17 @@
             Number(queueSummary.waiting_for_capacity || 0) +
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
+        var automaticRecovery = Number(queueSummary.auto_recovery_pending || 0);
+        var completedRecovery = (hodl.recent_auto_recoveries || []).filter(function (recovery) {
+            return cronOpsStatus(recovery.effective_status || recovery.status) === "success";
+        }).length;
         $("monitoring-live-clock").textContent = "IST " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
         var updatedEl = $("monitoring-live-updated");
         if (updatedEl) updatedEl.textContent = "Last updated: " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
         $("monitoring-live-summary").innerHTML = [
             ["Running crons", totals.running || 0],
             ["CronOps backlog", queueBacklog],
-            ["Financial recovery", automaticRecovery + " pending"],
+            ["Financial recovery", automaticRecovery + " active / " + completedRecovery + " complete"],
             ["Lane workers", workerCoverage.running + "/" + workerCoverage.total],
             ["DB spool", (spool.pending || 0) + " pending"],
             ["Cron procs", totals.processes || 0],
@@ -596,9 +611,12 @@
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
         var automaticRecovery = Number(queueSummary.auto_recovery_pending || 0);
+        var completedRecovery = (hodl.recent_auto_recoveries || []).filter(function (recovery) {
+            return cronOpsStatus(recovery.effective_status || recovery.status) === "success";
+        }).length;
         var cards = [
             ["Backlog", backlog, backlog ? "warn" : "ok"],
-            ["Financial recovery", automaticRecovery, automaticRecovery ? "warn" : "ok"],
+            ["Financial recovery", automaticRecovery + " active / " + completedRecovery + " complete", automaticRecovery ? "warn" : "ok"],
             ["Running", Number(queueSummary.running || 0), Number(queueSummary.running || 0) ? "ok" : ""],
             ["Workers", runningWorkers + "/" + workerCoverage.total, workerCoverage.unavailable.length || !workerCoverage.total ? "warn" : "ok"],
             ["Stale workers", staleWorkers, staleWorkers ? "warn" : "ok"],
@@ -836,6 +854,84 @@
         });
     }
 
+    function cronOpsRecoveryResult(recovery) {
+        var counters = cronOpsLatestRun(recovery).item_counters || {};
+        if (hasCounter(counters, "earnings_created")) {
+            var skipped = hasCounter(counters, "earnings_skipped_existing")
+                ? " / " + formatWhole(counters.earnings_skipped_existing) + " existing"
+                : "";
+            return formatWhole(counters.earnings_created) + " rows created" + skipped;
+        }
+        if (hasCounter(counters, "business_success")) {
+            return counters.business_success ? "Business success" : "Business result needs review";
+        }
+        return recovery.terminal_reason || "-";
+    }
+
+    function cronOpsRecoverySnapshot(recovery) {
+        var counters = cronOpsLatestRun(recovery).item_counters || {};
+        var metadata = recovery.metadata || {};
+        var snapshot = metadata.business_snapshot || {};
+        var snapshotId = counters.snapshot_id || snapshot.snapshot_id;
+        var hash = counters.snapshot_hash || snapshot.snapshot_hash;
+        if (!snapshotId && !hash) return "No snapshot reference";
+        return "#" + (snapshotId || "-") + (hash ? " / " + String(hash).slice(0, 12) : "");
+    }
+
+    function renderCronOpsRecoveries(data) {
+        var hodl = data.hodl_cronops || {};
+        var recoveries = hodl.recent_auto_recoveries || [];
+        var table = $("monitoring-cronops-recoveries");
+        var summary = $("monitoring-cronops-recoveries-summary");
+        var updated = $("monitoring-cronops-recoveries-updated");
+        if (updated) updated.textContent = "Updated " + (data.generated_at_ist ? formatIST(data.generated_at_ist) : "-");
+        if (!table || !summary) return;
+        if (hodl.status !== "ok") {
+            summary.innerHTML = "";
+            table.innerHTML = '<tr><td colspan="7" class="monitoring-muted">CronOps recovery data is unavailable: ' + esc(hodl.error || "unknown error") + '</td></tr>';
+            return;
+        }
+
+        var completed = 0;
+        var active = 0;
+        var attention = 0;
+        recoveries.forEach(function (recovery) {
+            var status = cronOpsStatus(recovery.effective_status || recovery.status);
+            if (status === "success") completed += 1;
+            else if (["queued", "scheduled", "running", "retrying", "waiting_for_capacity", "deferred_by_pressure"].indexOf(status) !== -1) active += 1;
+            else attention += 1;
+        });
+        var cards = [
+            ["Completed (24h)", completed, "ok"],
+            ["Active", active, active ? "warn" : "ok"],
+            ["Needs attention", attention, attention ? "bad" : "ok"]
+        ];
+        summary.innerHTML = cards.map(function (card) {
+            return '<div class="live-summary-card cronops-card ' + esc(card[2]) + '"><span>' + esc(card[0]) + '</span><strong>' + esc(card[1]) + '</strong></div>';
+        }).join("");
+
+        if (!recoveries.length) {
+            table.innerHTML = '<tr><td colspan="7" class="monitoring-muted">No snapshot-backed financial recoveries in the last 24 hours.</td></tr>';
+            return;
+        }
+        table.innerHTML = recoveries.map(function (recovery) {
+            var status = recovery.effective_status || recovery.status || "unknown";
+            var executed = recovery.started_at
+                ? formatIST(recovery.started_at) + (recovery.finished_at ? " / " + formatSeconds(recovery.run_seconds) : "")
+                : "Not started";
+            return '<tr class="monitoring-cronops-recovery-row" data-job-key="' + attr(recovery.job_key || "") + '" tabindex="0" role="button" aria-label="Open history for ' + attr(recovery.job_name || recovery.job_key || "financial recovery") + '">' +
+                '<td><strong>' + esc(recovery.job_name || recovery.job_key || "Unknown job") + '</strong><br><small>' + esc(recovery.job_key || "-") + '</small></td>' +
+                '<td><strong>' + esc(recovery.target_business_date || "-") + '</strong></td>' +
+                '<td><span class="monitoring-status ' + esc(cronOpsStatusClass(status)) + '">' + esc(cronOpsStatusLabel(status)) + '</span></td>' +
+                '<td>' + esc(formatIST(recovery.scheduled_for)) + '</td>' +
+                '<td>' + esc(executed) + '</td>' +
+                '<td>' + esc(cronOpsRecoveryResult(recovery)) + '</td>' +
+                '<td><code>' + esc(cronOpsRecoverySnapshot(recovery)) + '</code></td>' +
+            '</tr>';
+        }).join("");
+        bindCronOpsJobRows();
+    }
+
     function renderCronOpsJobs(data) {
         var hodl = data.hodl_cronops || {};
         var jobs = hodl.job_statuses || [];
@@ -976,6 +1072,7 @@
         var workerCoverage = cronopsWorkerCoverage(hodl);
         var spool = hodl.spool_summary || {};
         var ingestion = hodl.svr4plus_ingestion || {};
+        var recoveries = hodl.recent_auto_recoveries || [];
         if (!workerCoverage.total) {
             alerts.push("CronOps worker coverage is unavailable");
         } else if (workerCoverage.unavailable.length) {
@@ -990,6 +1087,12 @@
         if (Number(ingestion.pending || 0) > 0 || Number(ingestion.dead_letter || 0) > 0) {
             alerts.push("SVR4 Plus ingestion needs review: " + Number(ingestion.pending || 0) + " pending, " + Number(ingestion.dead_letter || 0) + " quarantined");
         }
+        recoveries.forEach(function (recovery) {
+            var status = cronOpsStatus(recovery.effective_status || recovery.status);
+            if (status !== "success") {
+                alerts.push("Financial recovery needs attention: " + (recovery.job_name || recovery.job_key || "unknown job") + " for " + (recovery.target_business_date || "unknown date") + " is " + cronOpsStatusLabel(status));
+            }
+        });
         (data.active_crons || []).forEach(function (item) {
             if (item.stuck) alerts.push(item.project + " " + liveCronName(item) + " has no progress for " + formatSeconds(item.seconds_since_progress));
         });
@@ -1041,6 +1144,7 @@
                 renderLiveSummary(data);
                 renderCronOpsLanes(data);
                 renderCronOpsJobs(data);
+                renderCronOpsRecoveries(data);
                 renderLiveCrons(data);
                 renderRecentRuns(data);
                 renderExternalErrors(data);

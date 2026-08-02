@@ -33,6 +33,7 @@
             <a href="#monitoring-action-center">Action Center</a>
             <a href="#monitoring-cronops-panel">CronOps Lanes</a>
             <a href="#monitoring-cronops-jobs-panel">HODL Jobs</a>
+            <a href="#monitoring-cronops-recoveries-panel">Financial Recovery</a>
             <a href="#monitoring-live-panel">Live Crons</a>
             <a href="#monitoring-projects-panel">Cron Tables</a>
             <a href="#monitoring-selected-panel">Selected Cron</a>
@@ -127,6 +128,35 @@
                     </thead>
                     <tbody id="monitoring-cronops-jobs">
                         <tr><td colspan="7" class="monitoring-muted">Loading CronOps job status...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="monitoring-cronops-recoveries-panel" class="monitoring-panel monitoring-cronops-recoveries-panel">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>Financial Recoveries</h2>
+                    <p class="monitoring-muted">Snapshot-backed recovery runs from the last 24 hours.</p>
+                </div>
+                <span id="monitoring-cronops-recoveries-updated" class="monitoring-muted">Loading...</span>
+            </div>
+            <div id="monitoring-cronops-recoveries-summary" class="monitoring-cronops-cards"></div>
+            <div class="table-responsive monitoring-live-table-wrap monitoring-cronops-recoveries-table-wrap">
+                <table class="table table-condensed monitoring-live-table">
+                    <thead>
+                        <tr>
+                            <th>Job</th>
+                            <th>Business Date</th>
+                            <th>Status</th>
+                            <th>Scheduled</th>
+                            <th>Executed</th>
+                            <th>Business Result</th>
+                            <th>Snapshot</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monitoring-cronops-recoveries">
+                        <tr><td colspan="7" class="monitoring-muted">Loading financial recovery status...</td></tr>
                     </tbody>
                 </table>
             </div>
