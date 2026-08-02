@@ -8,6 +8,7 @@ RELOAD_CRONTABS="$MONITORING_DIR/bin/reload-crontabs.sh"
 CRONOPS_WORKER_WATCHDOG="$MONITORING_DIR/bin/ensure-hodl-cronops-workers.sh"
 CRONOPS_WORKER_WATCHDOG_SERVICE="$MONITORING_DIR/systemd/hodl-cronops-worker-watchdog.service"
 CRONOPS_WORKER_WATCHDOG_TIMER="$MONITORING_DIR/systemd/hodl-cronops-worker-watchdog.timer"
+CRONOPS_WORKER_WATCHDOG_LOCK="${HODL_CRONOPS_WORKER_WATCHDOG_LOCK:-$MONITORING_DIR/runtime/hodl-cronops-worker-watchdog.lock}"
 CRONOPS_LIVE_URL="${HODL_CRONOPS_LIVE_URL:-http://127.0.0.1:8001/api/cronops/live/}"
 REQUIRED_WORKER_QUEUES="${HODL_CRONOPS_REQUIRED_WORKER_QUEUES:-financial,rank,analytics,maintenance,fetcher,reconciler}"
 EXPECTED_MONITORED_CRONS="${HODL_EXPECTED_MONITORED_CRONS:-31}"
@@ -303,6 +304,20 @@ install_cronops_worker_watchdog() {
   run sudo -n systemctl is-active --quiet hodl-cronops-worker-watchdog.timer
 }
 
+acquire_cronops_worker_watchdog_lock() {
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "ERROR: flock is required to coordinate the CronOps watchdog and deployment." >&2
+    return 1
+  fi
+  mkdir -p "$(dirname "$CRONOPS_WORKER_WATCHDOG_LOCK")"
+  exec 9>"$CRONOPS_WORKER_WATCHDOG_LOCK"
+  if ! flock -w 30 9; then
+    echo "ERROR: timed out waiting for the CronOps worker watchdog lock." >&2
+    return 1
+  fi
+  echo "Deployment holds the CronOps worker watchdog lock."
+}
+
 is_truthy() {
   [[ "${1,,}" =~ ^(1|true|yes|on)$ ]]
 }
@@ -429,6 +444,9 @@ refresh_monitoring_assets
 log "Pruning expired raw monitoring cron logs"
 run "$MONITORING_DIR/bin/prune-cron-logs.sh" --apply
 
+log "Coordinating with the CronOps worker watchdog"
+acquire_cronops_worker_watchdog_lock
+
 log "Installing CronOps worker watchdog timer"
 install_cronops_worker_watchdog
 
@@ -441,7 +459,6 @@ restart_hodl_worker_if_idle "hodl-cronops-worker-maintenance" "maintenance"
 restart_hodl_worker_if_idle "hodl-cronops-worker-fetcher" "fetcher"
 
 log "Verifying required CronOps worker lanes"
-run "$CRONOPS_WORKER_WATCHDOG"
 wait_for_cronops_worker_coverage
 
 restart_pm2_app "healthchecks-web"
