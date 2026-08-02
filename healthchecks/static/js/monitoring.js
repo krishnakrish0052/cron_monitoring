@@ -344,6 +344,7 @@
             Number(queueSummary.retrying || 0) +
             Number(queueSummary.deferred_by_pressure || 0);
         var automaticRecovery = Number(queueSummary.auto_recovery_pending || 0);
+        var missedSla = Number(queueSummary.missed_sla_24h || 0);
         var completedRecovery = (hodl.recent_auto_recoveries || []).filter(function (recovery) {
             return cronOpsStatus(recovery.effective_status || recovery.status) === "success";
         }).length;
@@ -666,6 +667,7 @@
             ["Running", Number(queueSummary.running || 0), Number(queueSummary.running || 0) ? "ok" : ""],
             ["Workers", runningWorkers + "/" + workerCoverage.total, workerCoverage.unavailable.length || !workerCoverage.total ? "warn" : "ok"],
             ["Stale workers", staleWorkers, staleWorkers ? "warn" : "ok"],
+            ["Missed SLA (24h)", missedSla, missedSla ? "warn" : "ok"],
             ["DB spool", Number(spool.pending || 0) + " pending", Number(spool.pending || 0) || Number(spool.failed || 0) ? "bad" : "ok"],
             ["Replay failed", Number(spool.failed || 0), Number(spool.failed || 0) ? "bad" : "ok"],
             ["SVR4+ review", unresolvedIngestion, unresolvedIngestion ? "warn" : "ok"]
@@ -1203,6 +1205,7 @@
         var spool = hodl.spool_summary || {};
         var ingestion = hodl.svr4plus_ingestion || {};
         var earnings = hodl.svr4plus_earnings || {};
+        var queueSummary = hodl.queue_summary || {};
         var recoveries = hodl.recent_auto_recoveries || [];
         if (!workerCoverage.total) {
             alerts.push("CronOps worker coverage is unavailable");
@@ -1214,6 +1217,9 @@
         }
         if (Number(spool.failed || 0) > 0) {
             alerts.push("CronOps DB-outage spool has " + Number(spool.failed || 0) + " failed replay file(s)");
+        }
+        if (Number(queueSummary.missed_sla_24h || 0) > 0) {
+            alerts.push("CronOps recorded " + Number(queueSummary.missed_sla_24h || 0) + " missed SLA trigger(s) in the last 24 hours; current job status may have recovered");
         }
         if (Number(ingestion.pending || 0) > 0 || Number(ingestion.dead_letter || 0) > 0) {
             alerts.push("SVR4 Plus ingestion needs review: " + Number(ingestion.pending || 0) + " pending, " + Number(ingestion.dead_letter || 0) + " quarantined");
