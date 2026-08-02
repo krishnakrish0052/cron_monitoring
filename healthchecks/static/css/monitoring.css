@@ -143,6 +143,7 @@ body.page-monitoring .footer {
 #monitoring-cronops-panel,
 #monitoring-cronops-jobs-panel,
 #monitoring-cronops-recoveries-panel,
+#monitoring-svr4plus-earnings-panel,
 #monitoring-live-panel,
 #monitoring-projects-panel,
 #monitoring-selected-panel,
@@ -165,6 +166,10 @@ body.page-monitoring .footer {
 
 .monitoring-cronops-recoveries-panel {
     border-color: rgba(255, 176, 0, .34);
+}
+
+.monitoring-svr4plus-earnings-panel {
+    border-color: rgba(0, 245, 212, .26);
 }
 
 .monitoring-cronops-cards {
@@ -691,6 +696,10 @@ body.page-monitoring .footer {
 
 .monitoring-cronops-recoveries-table-wrap {
     max-height: 420px;
+}
+
+.monitoring-svr4plus-earnings-table-wrap {
+    max-height: 560px;
 }
 
 .monitoring-cronops-job-row {

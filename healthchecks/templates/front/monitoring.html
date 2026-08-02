@@ -34,6 +34,7 @@
             <a href="#monitoring-cronops-panel">CronOps Lanes</a>
             <a href="#monitoring-cronops-jobs-panel">HODL Jobs</a>
             <a href="#monitoring-cronops-recoveries-panel">Financial Recovery</a>
+            <a href="#monitoring-svr4plus-earnings-panel">SVR4+ Earnings</a>
             <a href="#monitoring-live-panel">Live Crons</a>
             <a href="#monitoring-projects-panel">Cron Tables</a>
             <a href="#monitoring-selected-panel">Selected Cron</a>
@@ -157,6 +158,35 @@
                     </thead>
                     <tbody id="monitoring-cronops-recoveries">
                         <tr><td colspan="7" class="monitoring-muted">Loading financial recovery status...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="monitoring-svr4plus-earnings-panel" class="monitoring-panel monitoring-svr4plus-earnings-panel">
+            <div class="monitoring-project-head">
+                <div>
+                    <h2>SVR 4.0 Plus Earnings</h2>
+                    <p class="monitoring-muted">Daily distribution ledger and CronOps evidence for the last 14 business dates.</p>
+                </div>
+                <span id="monitoring-svr4plus-earnings-updated" class="monitoring-muted">Loading...</span>
+            </div>
+            <div id="monitoring-svr4plus-earnings-summary" class="monitoring-cronops-cards"></div>
+            <div class="table-responsive monitoring-live-table-wrap monitoring-svr4plus-earnings-table-wrap">
+                <table class="table table-condensed monitoring-live-table">
+                    <thead>
+                        <tr>
+                            <th>Business Date</th>
+                            <th>USDT Distribution</th>
+                            <th>Personal / Passive</th>
+                            <th>USDT Rows</th>
+                            <th>Other Token Distributions</th>
+                            <th>Business Result</th>
+                            <th>CronOps / Snapshot</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monitoring-svr4plus-earnings">
+                        <tr><td colspan="7" class="monitoring-muted">Loading daily SVR4 Plus distributions...</td></tr>
                     </tbody>
                 </table>
             </div>

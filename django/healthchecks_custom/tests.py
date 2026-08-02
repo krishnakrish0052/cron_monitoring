@@ -75,6 +75,11 @@ class CronopsEffectiveStatusTests(SimpleTestCase):
             "slow_q": {},
             "http_s": {},
             "pg": {},
+            "svr4plus_earnings": {
+                "status": "ok",
+                "primary_token": {"id": 1, "symbol": "USDT"},
+                "days": [{"business_date": "2026-08-02", "business_status": "distributed"}],
+            },
         }
 
         payload = _merge_hodl_cronops_state({})
@@ -86,3 +91,4 @@ class CronopsEffectiveStatusTests(SimpleTestCase):
             payload["hodl_cronops"]["recent_auto_recoveries"][0]["target_business_date"],
             "2026-08-01",
         )
+        self.assertEqual(payload["hodl_cronops"]["svr4plus_earnings"]["primary_token"]["symbol"], "USDT")

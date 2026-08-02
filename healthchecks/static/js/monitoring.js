@@ -709,6 +709,9 @@
             var streams = ingestion.streams || [];
             ingestionEl.innerHTML = streams.length ? streams.map(function (stream) {
                 var result = stream.last_error_type || (stream.last_success_at ? "success" : "waiting");
+                var reasons = (stream.dead_letter_reasons || []).map(function (reason) {
+                    return String(reason.count || 0) + " " + String(reason.error_type || "unknown").replace(/_/g, " ");
+                }).join(", ");
                 return '<tr>' +
                     '<td><strong>' + esc(stream.key || "-") + '</strong><br><small>' + esc(stream.chain_id || "-") + '</small></td>' +
                     '<td>' + esc(stream.cursor_block != null ? stream.cursor_block : "-") + '</td>' +
@@ -716,6 +719,7 @@
                     '<td>' + esc(stream.pending || 0) + '</td>' +
                     '<td>' + esc(stream.dead_letter || 0) + '</td>' +
                     '<td><span class="monitoring-status ' + esc(stream.last_error_type ? "down" : "up") + '">' + esc(result) + '</span>' +
+                    (reasons ? '<br><small>' + esc(reasons) + '</small>' : '') +
                     '<br><small>' + esc(stream.last_success_at ? formatIST(stream.last_success_at) : formatIST(stream.last_scan_at)) + '</small></td>' +
                 '</tr>';
             }).join("") : '<tr><td colspan="6" class="monitoring-muted">' +
@@ -924,6 +928,84 @@
         return "#" + (snapshotId || "-") + (hash ? " / " + String(hash).slice(0, 12) : "");
     }
 
+    function formatDistributionAmount(value, symbol) {
+        if (value == null || !Number.isFinite(Number(value))) return "-";
+        var amount = Number(value).toLocaleString("en-IN", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+        return amount + (symbol ? " " + symbol : "");
+    }
+
+    function distributionStatusClass(status) {
+        status = String(status || "unknown").toLowerCase();
+        if (["distributed", "recovered", "recorded", "no_eligible_earnings"].indexOf(status) !== -1) return "success";
+        if (["failed", "failure", "timeout", "stale", "missed_sla", "degraded", "cancelled", "not_recorded"].indexOf(status) !== -1) return "failure";
+        if (["awaiting_run", "queued", "scheduled", "running", "retrying", "waiting_for_capacity", "deferred_by_pressure"].indexOf(status) !== -1) return "warning";
+        return "paused";
+    }
+
+    function renderSvr4PlusEarnings(data) {
+        var hodl = data.hodl_cronops || {};
+        var earnings = hodl.svr4plus_earnings || {};
+        var summary = $("monitoring-svr4plus-earnings-summary");
+        var table = $("monitoring-svr4plus-earnings");
+        var updated = $("monitoring-svr4plus-earnings-updated");
+        if (updated) updated.textContent = "Updated " + (earnings.generated_at ? formatIST(earnings.generated_at) : "-");
+        if (!summary || !table) return;
+        if (earnings.status !== "ok") {
+            summary.innerHTML = "";
+            table.innerHTML = '<tr><td colspan="7" class="monitoring-muted">SVR4 Plus distribution data is unavailable: ' + esc(earnings.error || "unknown error") + '</td></tr>';
+            return;
+        }
+
+        var totals = earnings.totals || {};
+        var primary = earnings.primary_token || {};
+        var cards = [
+            [(primary.symbol || "USDT") + " total", formatDistributionAmount(totals.primary_amount, primary.symbol), "ok"],
+            ["Paid dates", totals.paid_days || 0, "ok"],
+            ["Recovered dates", totals.recovered_days || 0, totals.recovered_days ? "warn" : "ok"],
+            [(primary.symbol || "USDT") + " rows", formatWhole(totals.primary_rows || 0), "ok"],
+            ["Needs review", totals.attention_days || 0, totals.attention_days ? "bad" : "ok"]
+        ];
+        summary.innerHTML = cards.map(function (card) {
+            return '<div class="live-summary-card cronops-card ' + esc(card[2]) + '"><span>' + esc(card[0]) + '</span><strong>' + esc(card[1]) + '</strong></div>';
+        }).join("");
+
+        var days = earnings.days || [];
+        if (!days.length) {
+            table.innerHTML = '<tr><td colspan="7" class="monitoring-muted">No SVR4 Plus distribution rows were found for this period.</td></tr>';
+            return;
+        }
+        table.innerHTML = days.map(function (day) {
+            var distribution = day.primary_distribution || {};
+            var run = day.run || {};
+            var snapshot = day.snapshot || {};
+            var status = day.business_status || "unknown";
+            var other = (day.other_distributions || []).map(function (token) {
+                return esc(formatDistributionAmount(token.amount, token.symbol) + " / " + formatWhole(token.rows || 0) + " rows");
+            }).join("<br>");
+            var execution = [];
+            if (run.scheduled_for) execution.push("Scheduled " + formatIST(run.scheduled_for));
+            if (run.started_at) execution.push("Ran " + formatIST(run.started_at) + (run.run_seconds != null ? " / " + formatSeconds(run.run_seconds) : ""));
+            if (run.earnings_created != null) execution.push(formatWhole(run.earnings_created) + " rows created");
+            if (snapshot.id || snapshot.snapshot_hash) {
+                execution.push("Snapshot #" + (snapshot.id || "-") + (snapshot.snapshot_hash ? " / " + String(snapshot.snapshot_hash).slice(0, 12) : ""));
+            }
+            return '<tr>' +
+                '<td><strong>' + esc(day.business_date || "-") + '</strong></td>' +
+                '<td><strong>' + esc(formatDistributionAmount(distribution.amount, distribution.symbol || primary.symbol)) + '</strong></td>' +
+                '<td>' + esc(formatDistributionAmount(distribution.personal_amount, distribution.symbol || primary.symbol)) +
+                    '<br><small>' + esc(formatDistributionAmount(distribution.passive_amount, distribution.symbol || primary.symbol)) + '</small></td>' +
+                '<td>' + esc(formatWhole(distribution.rows || 0)) + '</td>' +
+                '<td>' + (other || '<span class="monitoring-muted">-</span>') + '</td>' +
+                '<td><span class="monitoring-status ' + esc(distributionStatusClass(status)) + '">' + esc(String(status).replace(/_/g, " ")) + '</span>' +
+                    (day.attention ? '<br><small>' + esc(day.attention) + '</small>' : '') + '</td>' +
+                '<td><small>' + esc(execution.length ? execution.join(" / ") : "No CronOps run record") + '</small></td>' +
+            '</tr>';
+        }).join("");
+    }
+
     function renderCronOpsRecoveries(data) {
         var hodl = data.hodl_cronops || {};
         var recoveries = hodl.recent_auto_recoveries || [];
@@ -1120,6 +1202,7 @@
         var workerCoverage = cronopsWorkerCoverage(hodl);
         var spool = hodl.spool_summary || {};
         var ingestion = hodl.svr4plus_ingestion || {};
+        var earnings = hodl.svr4plus_earnings || {};
         var recoveries = hodl.recent_auto_recoveries || [];
         if (!workerCoverage.total) {
             alerts.push("CronOps worker coverage is unavailable");
@@ -1134,6 +1217,11 @@
         }
         if (Number(ingestion.pending || 0) > 0 || Number(ingestion.dead_letter || 0) > 0) {
             alerts.push("SVR4 Plus ingestion needs review: " + Number(ingestion.pending || 0) + " pending, " + Number(ingestion.dead_letter || 0) + " quarantined");
+        }
+        if (earnings.status && earnings.status !== "ok") {
+            alerts.push("SVR4 Plus earnings distribution data is unavailable");
+        } else if (Number((earnings.totals || {}).attention_days || 0) > 0) {
+            alerts.push("SVR4 Plus earnings has " + Number(earnings.totals.attention_days || 0) + " business date(s) needing review");
         }
         recoveries.forEach(function (recovery) {
             var status = cronOpsStatus(recovery.effective_status || recovery.status);
@@ -1188,6 +1276,7 @@
             ["CronOps lanes", renderCronOpsLanes],
             ["CronOps jobs", renderCronOpsJobs],
             ["Financial recoveries", renderCronOpsRecoveries],
+            ["SVR4 Plus earnings", renderSvr4PlusEarnings],
             ["Live cron table", renderLiveCrons],
             ["Recent runs", renderRecentRuns],
             ["External errors", renderExternalErrors],
@@ -1223,6 +1312,8 @@
             "monitoring-cronops-jobs",
             "monitoring-cronops-recoveries-summary",
             "monitoring-cronops-recoveries",
+            "monitoring-svr4plus-earnings-summary",
+            "monitoring-svr4plus-earnings",
             "monitoring-live-crons",
             "monitoring-live-alerts"
         ].forEach(function (id) {

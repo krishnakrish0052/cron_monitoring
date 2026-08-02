@@ -110,7 +110,7 @@ _HODL_CRONOPS_DETAIL_TIMEOUT = float(os.environ.get("HODL_CRONOPS_DETAIL_TIMEOUT
 
 
 def _fetch_hodl_bundle() -> dict:
-    """Fetch the HODL cronops state (live + 3 detail endpoints) with a small
+    """Fetch the HODL cronops state (live + detail endpoints) with a small
     in-process cache so multiple concurrent dashboard polls don't all hammer
     the single-threaded HODL dev runserver. TTL counts from the END of the
     last fetch, so consecutive callers within TTL seconds get the cached copy.
@@ -120,20 +120,26 @@ def _fetch_hodl_bundle() -> dict:
     if cached["value"] is not None and (_time.monotonic() - cached["at"]) < _HODL_MERGE_TTL:
         return cached["value"]
 
-    bundle: dict = {"hodl": {}, "slow_q": {}, "http_s": {}, "pg": {}}
+    bundle: dict = {"hodl": {}, "slow_q": {}, "http_s": {}, "pg": {}, "svr4plus_earnings": {}}
     # These endpoints can become slow while HODL crons or DB work are busy.
     # Keep dashboard requests fast; stale cached data is better than tying up
     # all gunicorn workers and making Healthchecks itself unreachable.
     bundle["hodl"] = _fetch_json(HODL_CRONOPS_URL, timeout=_HODL_CRONOPS_LIVE_TIMEOUT)
     if "running" in bundle["hodl"] or "recent" in bundle["hodl"]:
         from concurrent.futures import ThreadPoolExecutor
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             f_slow = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/slow-queries/", _HODL_CRONOPS_DETAIL_TIMEOUT)
             f_http = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/http-stats/", _HODL_CRONOPS_DETAIL_TIMEOUT)
             f_pg = pool.submit(_fetch_json, f"{HODL_CRONOPS_BASE}/postgres/", _HODL_CRONOPS_DETAIL_TIMEOUT)
+            f_earnings = pool.submit(
+                _fetch_json,
+                f"{HODL_CRONOPS_BASE}/svr4plus-earnings/",
+                _HODL_CRONOPS_DETAIL_TIMEOUT,
+            )
             bundle["slow_q"] = f_slow.result()
             bundle["http_s"] = f_http.result()
             bundle["pg"] = f_pg.result()
+            bundle["svr4plus_earnings"] = f_earnings.result()
     cached["value"] = bundle
     cached["at"] = _time.monotonic()  # post-work, so TTL counts from completion
     return bundle
@@ -202,6 +208,7 @@ def _merge_hodl_cronops_state(state: dict) -> dict:
         "workers": hodl.get("workers", []),
         "worker_coverage": hodl.get("worker_coverage", []),
         "svr4plus_ingestion": hodl.get("svr4plus_ingestion", {}),
+        "svr4plus_earnings": bundle.get("svr4plus_earnings", {}),
         "generated_at": hodl.get("generated_at"),
     }
     return state
