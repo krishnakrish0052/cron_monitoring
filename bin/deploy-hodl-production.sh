@@ -424,6 +424,8 @@ run pip install -r requirements.txt
 log "Running Django checks and migrations"
 run python manage.py check
 run python manage.py migrate --noinput
+log "Collecting HODL static assets"
+run python manage.py collectstatic --noinput
 
 log "Syncing CronOps job inventory"
 if python manage.py help sync_cronops_jobs >/dev/null 2>&1; then
